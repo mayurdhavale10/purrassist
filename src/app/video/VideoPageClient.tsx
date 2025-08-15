@@ -11,7 +11,7 @@ type Message = {
   timestamp: Date;
 };
 
-const SOCKET_URL = "https://3798aec9d38e.ngrok-free.app";
+const SOCKET_URL = "https://9dca788ac8cc.ngrok-free.app";
 
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
