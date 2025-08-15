@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 const PLANS = {
@@ -9,7 +9,7 @@ const PLANS = {
   premium: { name: "Premium Ultimate", price: 169 },
 };
 
-export default function CheckoutPage() {
+function CheckoutContent() {
   const params = useSearchParams();
   const planId = params.get("plan") as keyof typeof PLANS;
   const plan = PLANS[planId];
@@ -107,5 +107,13 @@ export default function CheckoutPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function CheckoutPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <CheckoutContent />
+    </Suspense>
   );
 }
