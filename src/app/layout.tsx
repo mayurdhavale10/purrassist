@@ -4,6 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import GlobalAudio from "@/components/GlobalAudio"; // you'll create this
+import Navbar from "@/components/Navbar";
+import { SessionProvider } from "next-auth/react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,6 +29,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <SessionProvider>
+
+     
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
@@ -34,8 +39,10 @@ export default function RootLayout({
         <GlobalAudio />
 
         {/* Your existing context providers */}
+        <Navbar/>
         <Providers>{children}</Providers>
       </body>
+       </SessionProvider>
     </html>
   );
 }
