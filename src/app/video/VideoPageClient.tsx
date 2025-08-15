@@ -4,12 +4,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 
 type Role = "initiator" | "answerer";
-const SOCKET_URL = "https://066ee6a1e0fd.ngrok-free.app";
+const SOCKET_URL = "https://3798aec9d38e.ngrok-free.app";
 
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
   {
-    urls: "turn:165.231.253.248:3478",
+    urls: "turn:196.240.60.202:3478",
     username: "freeuser",
     credential: "freepassword",
   },

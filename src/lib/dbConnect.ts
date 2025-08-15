@@ -1,4 +1,4 @@
-//lib/mongooseConnect
+//lib/dbConnect.ts
 import mongoose from "mongoose";
 
 // Global type declaration - fix the type reference

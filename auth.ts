@@ -1,6 +1,10 @@
-import NextAuth from "next-auth"
-import Google from "next-auth/providers/google"
- 
-export const { handlers, signIn, signOut, auth } = NextAuth({
-  providers: [Google],
-})
+import NextAuth from "next-auth";
+import authConfig from "./auth.config";
+import { MongoDBAdapter } from "@auth/mongodb-adapter";
+import clientPromise from "@/lib/clientPromise";
+
+export const { handlers, auth, signIn, signOut } = NextAuth({
+  adapter: MongoDBAdapter(clientPromise) as any,
+  session: { strategy: "jwt" },
+  ...authConfig,
+});
