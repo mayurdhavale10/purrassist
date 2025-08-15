@@ -16,7 +16,7 @@ const SOCKET_URL = "https://9dca788ac8cc.ngrok-free.app";
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
   {
-    urls: "turn:196.240.60.202:3478",
+    urls: "turn:196.240.60.197:3478",
     username: "freeuser",
     credential: "freepassword",
   },
