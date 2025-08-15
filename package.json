@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.10.0",
+    "@cashfreepayments/cashfree-js": "^1.0.5",
     "axios": "^1.11.0",
     "lucide-react": "^0.539.0",
     "mongoose": "^8.17.1",
