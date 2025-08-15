@@ -237,32 +237,7 @@ export default function PricingCards() {
           </p>
         </div>
 
-        {/* FAQ Quick */}
-        <div className="mt-12 max-w-3xl mx-auto">
-          <div className="bg-white/60 backdrop-blur rounded-2xl p-8 border border-slate-200">
-            <h3 className="font-bold text-lg text-slate-900 mb-4 text-center">
-              Frequently Asked Questions
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <strong className="text-slate-700">Q: Is this a monthly subscription?</strong>
-                <p className="text-slate-600 mt-1">No! Pay once, use forever. No recurring charges.</p>
-              </div>
-              <div>
-                <strong className="text-slate-700">Q: How do you verify students?</strong>
-                <p className="text-slate-600 mt-1">College email verification + ID verification required.</p>
-              </div>
-              <div>
-                <strong className="text-slate-700">Q: Can I upgrade later?</strong>
-                <p className="text-slate-600 mt-1">Yes, but Independence Day pricing ends tonight!</p>
-              </div>
-              <div>
-                <strong className="text-slate-700">Q: What's Boys/Girls Mode?</strong>
-                <p className="text-slate-600 mt-1">Choose to connect only with male or female verified students.</p>
-              </div>
-            </div>
-          </div>
-        </div>
+
       </div>
 
       <style jsx>{`

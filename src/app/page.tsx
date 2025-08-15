@@ -2,11 +2,11 @@
 
 import { useSession, signIn } from "next-auth/react";
 import Image from "next/image";
-import Navbar from "@/components/Navbar";
+
 import Footer from "@/components/Footer";
-import Offer from "@/components/Offer";
+
 import PricingCards from "@/components/PricingCards";
-import { use, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import GenderModal from "@/components/GenderModal";
 
 export default function Home() {
