@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function PricingCards() {
+  const router = useRouter();
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
 
   const plans = [
@@ -62,7 +64,7 @@ export default function PricingCards() {
     {
       id: "premium",
       name: "Premium Ultimate",
-      price: "₹69",
+      price: "₹169",
       originalPrice: "₹269",
       period: "one-time",
       popular: false,
@@ -88,15 +90,14 @@ export default function PricingCards() {
 
   const handlePlanSelect = (planId: string) => {
     setSelectedPlan(planId);
-    // Here you would typically integrate with payment gateway
-    console.log(`Selected plan: ${planId}`);
+    router.push(`/checkout?plan=${planId}`);
   };
 
   return (
     <section id="pricing" className="relative w-full py-12 md:py-16">
       {/* Independence Day Background */}
       <div className="absolute inset-0 bg-gradient-to-br from-orange-50 via-white to-green-50 opacity-60"></div>
-      
+
       <div className="relative z-10 max-w-7xl mx-auto px-4">
         {/* Header */}
         <div className="text-center mb-12">
@@ -117,14 +118,13 @@ export default function PricingCards() {
 
         {/* Pricing Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {plans.map((plan, index) => (
+          {plans.map((plan) => (
             <div
               key={plan.id}
               className={`relative rounded-2xl p-6 md:p-8 shadow-lg transition-all duration-300 hover:shadow-xl hover:-translate-y-2 bg-gradient-to-br ${plan.bgColor} border-2 ${plan.borderColor} ${
                 plan.popular ? 'scale-105 ring-2 ring-orange-300 ring-opacity-50' : ''
               }`}
             >
-              {/* Badge */}
               {plan.badge && (
                 <div className={`absolute -top-3 left-1/2 transform -translate-x-1/2 px-4 py-1 rounded-full text-sm font-bold text-white ${
                   plan.urgent ? 'bg-gradient-to-r from-red-500 to-red-600 animate-pulse' : 
@@ -135,19 +135,16 @@ export default function PricingCards() {
                 </div>
               )}
 
-              {/* Urgent Timer for Premium */}
               {plan.urgent && (
                 <div className="absolute top-4 right-4 bg-red-500 text-white text-xs px-2 py-1 rounded-full animate-bounce">
                   ENDS MIDNIGHT!
                 </div>
               )}
 
-              {/* Icon & Title */}
               <div className="text-center mb-6">
                 <div className="text-4xl mb-3">{plan.icon}</div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">{plan.name}</h3>
                 
-                {/* Pricing */}
                 <div className="mb-4">
                   {plan.originalPrice && plan.originalPrice !== plan.price && (
                     <div className="text-sm text-slate-500 line-through mb-1">
@@ -170,7 +167,6 @@ export default function PricingCards() {
                 </div>
               </div>
 
-              {/* Features */}
               <div className="space-y-3 mb-8">
                 {plan.features.map((feature, idx) => (
                   <div key={idx} className="flex items-start gap-3">
@@ -179,7 +175,6 @@ export default function PricingCards() {
                   </div>
                 ))}
                 
-                {/* Limitations */}
                 {plan.limitations.length > 0 && (
                   <div className="border-t pt-3 mt-4">
                     {plan.limitations.map((limitation, idx) => (
@@ -192,7 +187,6 @@ export default function PricingCards() {
                 )}
               </div>
 
-              {/* CTA Button */}
               <button
                 onClick={() => handlePlanSelect(plan.id)}
                 className={`w-full py-4 px-6 rounded-xl font-bold text-white transition-all duration-300 hover:scale-105 bg-gradient-to-r ${plan.buttonColor} shadow-lg hover:shadow-xl ${
@@ -202,7 +196,6 @@ export default function PricingCards() {
                 {plan.buttonText}
               </button>
 
-              {/* Additional CTA for Premium */}
               {plan.urgent && (
                 <div className="text-center mt-3">
                   <p className="text-xs text-slate-600">
@@ -213,58 +206,7 @@ export default function PricingCards() {
             </div>
           ))}
         </div>
-
-        {/* Trust Signals */}
-        <div className="mt-16 text-center">
-          <div className="inline-flex items-center gap-8 bg-white/80 backdrop-blur rounded-2xl px-8 py-6 shadow-lg border border-slate-200">
-            <div className="flex items-center gap-2 text-slate-700">
-              <span className="text-green-500 text-lg">🛡️</span>
-              <span className="font-medium">100% Verified Students</span>
-            </div>
-            <div className="flex items-center gap-2 text-slate-700">
-              <span className="text-blue-500 text-lg">🔒</span>
-              <span className="font-medium">Safe & Secure</span>
-            </div>
-            <div className="flex items-center gap-2 text-slate-700">
-              <span className="text-purple-500 text-lg">⚡</span>
-              <span className="font-medium">Instant Access</span>
-            </div>
-          </div>
-          
-          <p className="text-sm text-slate-500 mt-6 max-w-2xl mx-auto">
-            All plans include access to verified college students only. No bots, no fake profiles, no monthly subscriptions. 
-            <strong> Pay once, connect forever!</strong>
-          </p>
-        </div>
-
-
       </div>
-
-      <style jsx>{`
-        @keyframes pulse {
-          0%, 100% {
-            opacity: 1;
-          }
-          50% {
-            opacity: 0.8;
-          }
-        }
-        
-        @keyframes bounce {
-          0%, 20%, 53%, 80%, 100% {
-            transform: translateY(0px);
-          }
-          40%, 43% {
-            transform: translateY(-6px);
-          }
-          70% {
-            transform: translateY(-3px);
-          }
-          90% {
-            transform: translateY(-1px);
-          }
-        }
-      `}</style>
     </section>
   );
 }
