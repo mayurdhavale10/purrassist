@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 // Try to import the npm package instead of dynamic loading
 let loadCashfree: any = null;
@@ -41,6 +42,7 @@ function CheckoutInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const session = useSession();
 
   const loadCashfreeSDK = async (): Promise<any> => {
     // Try npm package first
@@ -143,12 +145,13 @@ function CheckoutInner() {
       }
 
       console.log("[Payment] Creating payment session...");
+      const email = session?.data?.user?.email;
       const res = await fetch("/api/payment/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId,
-          customerEmail: "sidnagaych4321@gmail.com", // make dynamic if you want
+          customerEmail: email, // make dynamic if you want
           customerPhone: "9999999999", // make dynamic if you want
         }),
       });
