@@ -1,7 +1,7 @@
 "use client";
-import Image from "next/image";
 import React, { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
+import { useSession } from "next-auth/react";
 
 type Role = "initiator" | "answerer";
 type Message = {
@@ -11,12 +11,41 @@ type Message = {
   timestamp: Date;
 };
 
-const SOCKET_URL = "https://9dca788ac8cc.ngrok-free.app";
+type MatchingOption = {
+  type: string;
+  label: string;
+  description: string;
+  icon: string;
+  requiresGender?: string;
+};
+
+type UserPlan = {
+  user: {
+    email: string;
+    name: string;
+    image?: string;
+    gender: string;
+    college: string;
+    planType: string;
+    hasActivePlan: boolean;
+    planExpiry?: string;
+    daysRemaining?: number;
+  };
+  matchingOptions: MatchingOption[];
+  planStatus: {
+    isActive: boolean;
+    planName: string;
+    expiresAt?: string;
+    daysRemaining?: number;
+  };
+};
+
+const SOCKET_URL = "https://3d0a9a98866f.ngrok-free.app";
 
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
   {
-    urls: "turn:196.240.60.197:3478",
+    urls: "turn:196.240.60.195:3478",
     username: "freeuser",
     credential: "freepassword",
   },
@@ -28,6 +57,7 @@ const ICE_SERVERS: RTCConfiguration["iceServers"] = [
 ];
 
 export default function VideoPageClient() {
+  const { data: session, status } = useSession();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -36,7 +66,7 @@ export default function VideoPageClient() {
   const candidateBufferRef = useRef<RTCIceCandidateInit[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
   
-  const [status, setStatus] = useState("Initializing...");
+  const [statusMessage, setStatusMessage] = useState("Initializing...");
   const [partnerId, setPartnerId] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -45,6 +75,12 @@ export default function VideoPageClient() {
   const [strangerTyping, setStrangerTyping] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  
+  // Plan-related states
+  const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
+  const [selectedMatchingOption, setSelectedMatchingOption] = useState<string>("");
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Detect mobile/tablet
   useEffect(() => {
@@ -62,6 +98,21 @@ export default function VideoPageClient() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Fetch user plan when session is loaded
+  useEffect(() => {
+    if (status === "loading") return; // Still loading
+    
+    if (status === "unauthenticated") {
+      setStatusMessage("Please sign in to use the chat");
+      setLoading(false);
+      return;
+    }
+
+    if (session?.user?.email) {
+      fetchUserPlan();
+    }
+  }, [session, status]);
+
   // Get camera with improved error handling
   useEffect(() => {
     if (showVideo) {
@@ -71,9 +122,35 @@ export default function VideoPageClient() {
     }
   }, [showVideo]);
 
+  const fetchUserPlan = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/user/me');
+      
+      if (response.ok) {
+        const planData = await response.json();
+        setUserPlan(planData);
+        
+        // Set default matching option
+        if (planData.matchingOptions.length > 0) {
+          setSelectedMatchingOption(planData.matchingOptions[0].type);
+        }
+        
+        setStatusMessage("Ready to start! Choose your matching preference.");
+      } else {
+        console.error("Failed to fetch user plan");
+        setStatusMessage("Failed to load user data. Please refresh.");
+      }
+    } catch (error) {
+      console.error("Error fetching user plan:", error);
+      setStatusMessage("Connection error. Please refresh the page.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const initializeCamera = async () => {
     try {
-      // Stop existing stream if any
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -82,24 +159,22 @@ export default function VideoPageClient() {
         video: { 
           width: { ideal: 640, max: 1280 },
           height: { ideal: 480, max: 720 },
-          facingMode: "user" // Front camera on mobile
+          facingMode: "user"
         }, 
         audio: true 
       });
       
       localStreamRef.current = stream;
       
-      // Set local video immediately
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        // Ensure video plays
         localVideoRef.current.play().catch(e => console.log("Video play failed:", e));
       }
       
-      setStatus("Camera ready. Click 'Start' to find a stranger...");
+      setStatusMessage("Camera ready. Choose your matching preference and click 'Start'...");
     } catch (err) {
       console.error("Camera error:", err);
-      setStatus("Camera permission required. You can still use text chat.");
+      setStatusMessage("Camera permission required. You can still use text chat.");
       setShowVideo(false);
     }
   };
@@ -116,15 +191,29 @@ export default function VideoPageClient() {
 
   // Socket setup
   useEffect(() => {
+    if (!userPlan || !session?.user?.email) return;
+
     const socket = io(SOCKET_URL, { transports: ["websocket"] });
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      setStatus("Connected to server. Click 'Start' to find a stranger...");
+      setStatusMessage("Connected. Choose your matching preference and click 'Start'...");
+    });
+
+    // Register user with socket
+    socket.emit("registerUser", { email: session.user.email });
+
+    socket.on("registrationSuccess", () => {
+      setIsRegistered(true);
+      setStatusMessage("Ready to start! Choose your matching preference.");
+    });
+
+    socket.on("registrationFailed", () => {
+      setStatusMessage("Registration failed. Please refresh the page.");
     });
 
     socket.on("searching", () => {
-      setStatus("Looking for someone you can chat with...");
+      setStatusMessage("Looking for someone you can chat with...");
       setIsConnected(false);
       setMessages([]);
       teardownPeer();
@@ -135,7 +224,7 @@ export default function VideoPageClient() {
     socket.on("matchFound", async ({ partnerId: pid, role }: { partnerId: string; role: Role }) => {
       setPartnerId(pid);
       setRole(role);
-      setStatus("You're now chatting with a random stranger. Say hi!");
+      setStatusMessage("You're now chatting with a random stranger. Say hi!");
       setIsConnected(true);
       setMessages([{
         id: Date.now().toString(),
@@ -149,7 +238,6 @@ export default function VideoPageClient() {
       }
     });
 
-    // Chat message handling
     socket.on("chatMessage", ({ message, sender }) => {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
@@ -163,7 +251,6 @@ export default function VideoPageClient() {
       setStrangerTyping(isTyping);
     });
 
-    // WebRTC signaling
     socket.on("offer", async ({ sdp, caller }) => {
       setPartnerId(caller);
       setRole("answerer");
@@ -194,7 +281,7 @@ export default function VideoPageClient() {
     });
 
     socket.on("partner-left", () => {
-      setStatus("Stranger has disconnected.");
+      setStatusMessage("Stranger has disconnected.");
       setIsConnected(false);
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
@@ -212,9 +299,9 @@ export default function VideoPageClient() {
       teardownPeer();
       stopCamera();
     };
-  }, [showVideo]);
+  }, [userPlan, session]);
 
-  // Start peer connection with improved video handling
+  // WebRTC functions (keeping same as before)
   async function startPeer(partner: string, myRole: Role) {
     if (!localStreamRef.current || !showVideo) return;
 
@@ -224,7 +311,6 @@ export default function VideoPageClient() {
 
     pcRef.current = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    // Add local stream tracks
     localStreamRef.current.getTracks().forEach((track) => {
       if (pcRef.current && localStreamRef.current) {
         pcRef.current.addTrack(track, localStreamRef.current);
@@ -232,7 +318,6 @@ export default function VideoPageClient() {
     });
 
     pcRef.current.ontrack = (event) => {
-      console.log("Received remote track:", event.streams[0]);
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
         remoteVideoRef.current.play().catch(e => console.log("Remote video play failed:", e));
@@ -272,16 +357,32 @@ export default function VideoPageClient() {
   }
 
   function handleStart() {
-    if (socketRef.current) {
-      socketRef.current.emit("findPartner");
-      setStatus("Looking for someone you can chat with...");
+    if (socketRef.current && selectedMatchingOption && session?.user?.email) {
+      // Send user email and matching preference to server
+      socketRef.current.emit("findPartner", { 
+        email: session.user.email,
+        matchingPreference: selectedMatchingOption 
+      });
+      setStatusMessage("Looking for someone you can chat with...");
     }
   }
 
   function handleNext() {
     if (socketRef.current) {
       socketRef.current.emit("skip");
-      setStatus("Looking for a new person to chat with...");
+      setStatusMessage("Looking for a new person to chat with...");
+      setIsConnected(false);
+      setMessages([]);
+      teardownPeer();
+      setPartnerId(null);
+      setRole(null);
+    }
+  }
+
+  function handleEnd() {
+    if (socketRef.current) {
+      socketRef.current.emit("leave");
+      setStatusMessage("Disconnected. Choose your preference and click 'Start' to begin again.");
       setIsConnected(false);
       setMessages([]);
       teardownPeer();
@@ -317,32 +418,50 @@ export default function VideoPageClient() {
     }
   }
 
+  // Loading state
+  if (loading || status === "loading") {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        color: "white",
+        fontSize: "18px"
+      }}>
+        Loading...
+      </div>
+    );
+  }
+
+  // Not authenticated state
+  if (status === "unauthenticated") {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        color: "white",
+        fontSize: "18px"
+      }}>
+        Please sign in to use the chat
+      </div>
+    );
+  }
+
   const containerStyle: React.CSSProperties = {
     minHeight: "100vh",
     background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     fontFamily: "Arial, sans-serif"
   };
 
-  const headerStyle: React.CSSProperties = {
-    background: "#fff",
-    padding: isMobile ? "10px 15px" : "15px 20px",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
-    borderBottom: "3px solid #4f46e5"
-  };
-
-  const titleStyle: React.CSSProperties = {
-    margin: 0,
-    fontSize: isMobile ? "20px" : "28px",
-    background: "linear-gradient(45deg, #4f46e5, #7c3aed)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    fontWeight: "bold"
-  };
-
   const mainContainerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: isMobile ? "column" : "row",
-    height: isMobile ? "auto" : "calc(100vh - 100px)",
+    height: isMobile ? "auto" : "calc(100vh - 20px)",
     maxWidth: "1400px",
     margin: "0 auto",
     padding: isMobile ? "10px" : "20px",
@@ -388,7 +507,7 @@ export default function VideoPageClient() {
   };
 
   const controlsSectionStyle: React.CSSProperties = {
-    flex: isMobile ? "none" : "0 0 200px",
+    flex: isMobile ? "none" : "0 0 280px",
     display: "flex",
     flexDirection: isMobile ? "row" : "column",
     gap: "15px"
@@ -402,33 +521,8 @@ export default function VideoPageClient() {
     flex: isMobile ? "1" : "none"
   };
 
-  const buttonStyle: React.CSSProperties = {
-    width: "100%",
-    padding: isMobile ? "12px" : "15px",
-    border: "none",
-    borderRadius: "10px",
-    fontSize: isMobile ? "14px" : "16px",
-    fontWeight: "bold",
-    cursor: "pointer",
-    marginBottom: "10px"
-  };
-
-  const startButtonStyle: React.CSSProperties = {
-    ...buttonStyle,
-    background: "linear-gradient(45deg, #10b981, #059669)",
-    color: "white"
-  };
-
-  const nextButtonStyle: React.CSSProperties = {
-    ...buttonStyle,
-    background: "linear-gradient(45deg, #ef4444, #dc2626)",
-    color: "white"
-  };
-
   return (
     <div style={containerStyle}>
-    
-
       <div style={mainContainerStyle}>
         
         {/* Video Section */}
@@ -436,35 +530,12 @@ export default function VideoPageClient() {
           <div style={videoSectionStyle}>
             <div style={videoContainerStyle}>
               <div style={videoWrapperStyle}>
-                <div style={{ 
-                  fontSize: "12px", 
-                  color: "#666", 
-                  marginBottom: "5px" 
-                }}>
-                  You
-                </div>
-                <video 
-                  ref={localVideoRef} 
-                  autoPlay 
-                  muted 
-                  playsInline 
-                  style={videoStyle}
-                />
+                <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>You</div>
+                <video ref={localVideoRef} autoPlay muted playsInline style={videoStyle} />
               </div>
               <div style={videoWrapperStyle}>
-                <div style={{ 
-                  fontSize: "12px", 
-                  color: "#666", 
-                  marginBottom: "5px" 
-                }}>
-                  Stranger
-                </div>
-                <video 
-                  ref={remoteVideoRef} 
-                  autoPlay 
-                  playsInline 
-                  style={videoStyle}
-                />
+                <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>Stranger</div>
+                <video ref={remoteVideoRef} autoPlay playsInline style={videoStyle} />
               </div>
             </div>
           </div>
@@ -482,7 +553,7 @@ export default function VideoPageClient() {
             fontSize: isMobile ? "12px" : "14px",
             fontWeight: "500"
           }}>
-            {status}
+            {statusMessage}
           </div>
 
           {/* Messages */}
@@ -509,23 +580,14 @@ export default function VideoPageClient() {
                 wordWrap: "break-word",
                 fontSize: isMobile ? "14px" : "16px"
               }}>
-                <div style={{ 
-                  fontSize: "10px", 
-                  opacity: 0.7, 
-                  marginBottom: "2px" 
-                }}>
+                <div style={{ fontSize: "10px", opacity: 0.7, marginBottom: "2px" }}>
                   {msg.sender === "you" ? "You" : "Stranger"}
                 </div>
                 {msg.text}
               </div>
             ))}
             {strangerTyping && (
-              <div style={{ 
-                color: "#6b7280", 
-                fontSize: "12px", 
-                fontStyle: "italic",
-                padding: "8px 12px"
-              }}>
+              <div style={{ color: "#6b7280", fontSize: "12px", fontStyle: "italic", padding: "8px 12px" }}>
                 Stranger is typing...
               </div>
             )}
@@ -533,11 +595,7 @@ export default function VideoPageClient() {
           </div>
 
           {/* Message Input */}
-          <div style={{ 
-            display: "flex", 
-            gap: "10px",
-            flexDirection: isMobile ? "column" : "row"
-          }}>
+          <div style={{ display: "flex", gap: "10px", flexDirection: isMobile ? "column" : "row" }}>
             <input
               type="text"
               value={messageInput}
@@ -580,16 +638,119 @@ export default function VideoPageClient() {
         {/* Controls */}
         <div style={controlsSectionStyle}>
           
-          {/* Start/Next Buttons */}
+          {/* Plan Info */}
+          {userPlan && (
+            <div style={{
+              ...controlsCardStyle,
+              background: userPlan.planStatus.isActive ? "linear-gradient(45deg, #10b981, #059669)" : "#f3f4f6",
+              color: userPlan.planStatus.isActive ? "white" : "#374151"
+            }}>
+              <h3 style={{ margin: "0 0 10px", fontSize: isMobile ? "14px" : "16px" }}>
+                {userPlan.planStatus.planName}
+              </h3>
+              <p style={{ margin: "0 0 5px", fontSize: "12px", opacity: 0.8 }}>
+                College: {userPlan.user.college}
+              </p>
+              {userPlan.planStatus.daysRemaining && (
+                <p style={{ margin: "0", fontSize: "12px", opacity: 0.8 }}>
+                  {userPlan.planStatus.daysRemaining} days remaining
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Matching Options */}
+          {userPlan && (
+            <div style={controlsCardStyle}>
+              <h4 style={{ margin: "0 0 10px", fontSize: isMobile ? "12px" : "14px", color: "#374151" }}>
+                Matching Preference
+              </h4>
+              {userPlan.matchingOptions.map((option) => (
+                <label key={option.type} style={{
+                  display: "block",
+                  padding: "8px",
+                  margin: "5px 0",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  background: selectedMatchingOption === option.type ? "#e0e7ff" : "white"
+                }}>
+                  <input
+                    type="radio"
+                    name="matchingOption"
+                    value={option.type}
+                    checked={selectedMatchingOption === option.type}
+                    onChange={(e) => setSelectedMatchingOption(e.target.value)}
+                    style={{ marginRight: "8px" }}
+                  />
+                  <span style={{ fontWeight: "500" }}>
+                    {option.icon} {option.label}
+                  </span>
+                  <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "2px" }}>
+                    {option.description}
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {/* Action Buttons */}
           <div style={controlsCardStyle}>
             {!isConnected ? (
-              <button onClick={handleStart} style={startButtonStyle}>
-                🚀 Start
+              <button 
+                onClick={handleStart} 
+                disabled={!selectedMatchingOption || !isRegistered}
+                style={{
+                  width: "100%",
+                  padding: "15px",
+                  border: "none",
+                  borderRadius: "10px",
+                  fontSize: isMobile ? "14px" : "16px",
+                  fontWeight: "bold",
+                  cursor: selectedMatchingOption && isRegistered ? "pointer" : "not-allowed",
+                  marginBottom: "10px",
+                  background: selectedMatchingOption && isRegistered ? "linear-gradient(45deg, #10b981, #059669)" : "#9ca3af",
+                  color: "white"
+                }}
+              >
+                🚀 Start Chatting
               </button>
             ) : (
-              <button onClick={handleNext} style={nextButtonStyle}>
-                ➡️ Next
-              </button>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <button 
+                  onClick={handleNext}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "none",
+                    borderRadius: "10px",
+                    fontSize: isMobile ? "14px" : "16px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    background: "linear-gradient(45deg, #ef4444, #dc2626)",
+                    color: "white"
+                  }}
+                >
+                  ➡️ Next
+                </button>
+                <button 
+                  onClick={handleEnd}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "none",
+                    borderRadius: "10px",
+                    fontSize: isMobile ? "14px" : "16px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    background: "linear-gradient(45deg, #6b7280, #4b5563)",
+                    color: "white"
+                  }}
+                >
+                  🛑 End Chat
+                </button>
+              </div>
             )}
 
             <label style={{ 
@@ -597,7 +758,8 @@ export default function VideoPageClient() {
               alignItems: "center", 
               gap: "8px", 
               cursor: "pointer",
-              fontSize: isMobile ? "12px" : "14px"
+              fontSize: isMobile ? "12px" : "14px",
+              marginTop: "15px"
             }}>
               <input
                 type="checkbox"
@@ -605,11 +767,11 @@ export default function VideoPageClient() {
                 onChange={(e) => setShowVideo(e.target.checked)}
                 style={{ transform: "scale(1.2)" }}
               />
-              <span style={{ color: "#374151" }}>Enable Video</span>
+              <span style={{ color: "#374151" }}>Enable Video Chat</span>
             </label>
           </div>
 
-          {/* Info Panel - Hide on mobile when space is limited */}
+          {/* Info Panel */}
           {(!isMobile || !showVideo) && (
             <div style={{
               ...controlsCardStyle,
@@ -624,10 +786,28 @@ export default function VideoPageClient() {
               }}>
                 How it works:
               </h3>
-              <p>• Click "Start" to find a random stranger</p>
+              <p>• Choose your matching preference</p>
+              <p>• Click "Start" to find someone</p>
               <p>• Chat via text or enable video</p>
-              <p>• Click "Next" to find a new person</p>
-              <p>• Be respectful and have fun!</p>
+              <p>• Use "Next" to find a new person</p>
+              <p>• Click "End" to stop completely</p>
+              <p>• Be respectful and have fun! 🎉</p>
+              
+              {userPlan?.planStatus.isActive && userPlan.planStatus.planName !== "Free Plan" && (
+                <div style={{ 
+                  marginTop: "10px", 
+                  padding: "8px", 
+                  background: "#f0f9ff", 
+                  borderRadius: "6px",
+                  border: "1px solid #bae6fd"
+                }}>
+                  <p style={{ margin: "0", color: "#0369a1", fontSize: "11px" }}>
+                    🎉 You have {userPlan.planStatus.planName}! 
+                    {userPlan.user.planType === "gender" && " Filter by gender in your college."}
+                    {userPlan.user.planType === "intercollege" && " Match with any college & filter by gender!"}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
