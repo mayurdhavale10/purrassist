@@ -10,81 +10,83 @@ export default function PricingCards() {
   const plans = [
     {
       id: "free",
-      name: "Basic Free",
+      name: "Basic Plan – Free",
       price: "₹0",
       originalPrice: null,
       period: "Today Only",
       popular: false,
       urgent: false,
       features: [
-        "Same college video chat only",
-        "Verified student profiles",
-        "Safe & secure platform",
-        "Basic matching system",
-        "24/7 support"
+        "**Same-College Video Chat** – Connect only with students from your college.",
+        "**Verified Profiles** – Real students, no fake accounts.",
+        "**Safe & Secure** – Privacy-first platform.",
+        "**Basic Matching** – Get suggested profiles daily.",
+        "**24/7 Support** – Help whenever you need it."
       ],
       limitations: [
-        "Cannot chat with other colleges",
-        "No gender preferences",
-        "Limited daily matches"
+        "**No Cross-College Chat** – Only your campus network.",
+        "**No Gender Filters** – Matches are random.",
+        "**Limited Daily Swipes** – Take it slow!"
       ],
+      bottomText: "🎓 Campus-focused. Simple. Safe.",
       buttonText: "Start Free",
       buttonColor: "from-green-500 to-green-600",
       borderColor: "border-green-200",
       bgColor: "from-green-50 via-white to-green-50",
-      icon: "🆓",
+      logo: "/purr_assit_logo.webp",
       badge: null
     },
     {
       id: "basic",
-      name: "Basic All-Colleges",
-      price: "₹69",
+      name: "Basic All-Colleges Plan",
+      price: "FREE TODAY!",
       originalPrice: "₹69",
-      period: "one-time",
+      period: "freedom sale",
       popular: true,
       urgent: false,
       features: [
-        "Same college + inter-college chat",
-        "Connect with ANY verified college",
-        "Unlimited daily matches",
-        "Advanced matching algorithm",
-        "Priority customer support",
-        "Profile boost features"
+        "**Same + Inter-College Chat** – Video chat across campuses",
+        "**Any Verified College** – Connect with ANY institute in India",
+        "**Unlimited Swipes** – No restrictions today!",
+        "**Smart Matching** – AI finds your ideal connections",
+        "**Priority Support** – Instant help when needed",
+        "**Profile Booster** – 2x visibility for 24 hours"
       ],
       limitations: [
-        "No gender preference options"
+        "**No Gender Filters** – Random verified matches"
       ],
+      bottomText: "🎉 Celebrate Freedom to Connect!",
       buttonText: "Get Basic Access",
       buttonColor: "from-orange-500 to-orange-600",
       borderColor: "border-orange-300",
       bgColor: "from-orange-50 via-white to-orange-50",
-      icon: "🏫",
+      logo: "/purr_assit_logo.webp",
       badge: "Most Popular"
     },
     {
       id: "premium",
       name: "Premium Ultimate",
       price: "₹169",
-      originalPrice: "₹269",
-      period: "one-time",
+      originalPrice: "₹369",
+      period: "monthly (One-Time Offer!)",
       popular: false,
       urgent: true,
       features: [
-        "Everything in Basic +",
-        "🚹 Boys Mode - Connect with verified male students",
-        "🚺 Girls Mode - Women-only safe space",
-        "Advanced filters & preferences",
-        "VIP profile visibility",
-        "Exclusive premium features",
-        "Priority matching queue"
+        "**Everything in Basic + More!**",
+        "**Talk to Who You Want** – Choose your preferred gender (boys/girls) for connections.",
+        "**Advanced Filters** – Refine matches by interests, location & more.",
+        "**VIP Profile Boost** – Get 3x more visibility & likes.",
+        "**Exclusive Features** – Unlock hidden perks for better chats.",
+        "**Priority Matching** – Skip waiting, meet people faster!"
       ],
       limitations: [],
-      buttonText: "Claim 90% OFF",
+      bottomText: "✨ Your rules, your connections—pick who you vibe with!",
+      buttonText: "Claim Offer",
       buttonColor: "from-red-500 via-red-600 to-red-700",
       borderColor: "border-red-300",
       bgColor: "from-red-50 via-white to-red-50",
-      icon: "👥",
-      badge: "90% OFF"
+      logo: "/purr_assit_logo.webp",
+      badge: "🔥 Save ₹200 Today!"
     }
   ];
 
@@ -142,7 +144,13 @@ export default function PricingCards() {
               )}
 
               <div className="text-center mb-6">
-                <div className="text-4xl mb-3">{plan.icon}</div>
+                <div className="flex justify-center mb-3">
+                  <img 
+                    src={plan.logo} 
+                    alt="PurrAssist Logo" 
+                    className="w-16 h-16 object-contain"
+                  />
+                </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">{plan.name}</h3>
                 
                 <div className="mb-4">
@@ -153,12 +161,17 @@ export default function PricingCards() {
                   )}
                   <div className="text-3xl font-black text-slate-900">
                     {plan.price}
-                    {plan.price !== "₹0" && (
+                    {!plan.price.includes("FREE") && plan.price !== "₹0" && (
                       <span className="text-sm font-medium text-slate-600 ml-1">
                         {plan.period}
                       </span>
                     )}
                   </div>
+                  {plan.period && plan.price.includes("FREE") && (
+                    <div className="text-orange-600 font-bold text-sm mt-1">
+                      {plan.period}
+                    </div>
+                  )}
                   {plan.urgent && (
                     <div className="text-green-600 font-bold text-sm mt-1">
                       Save ₹200 today!
@@ -170,19 +183,37 @@ export default function PricingCards() {
               <div className="space-y-3 mb-8">
                 {plan.features.map((feature, idx) => (
                   <div key={idx} className="flex items-start gap-3">
-                    <span className="text-green-500 font-bold mt-0.5">✓</span>
-                    <span className="text-slate-700 text-sm leading-relaxed">{feature}</span>
+                    <span className="text-2xl mt-0.5">😻</span>
+                    <div 
+                      className="text-slate-700 text-sm leading-relaxed"
+                      dangerouslySetInnerHTML={{
+                        __html: feature.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                      }}
+                    />
                   </div>
                 ))}
                 
                 {plan.limitations.length > 0 && (
                   <div className="border-t pt-3 mt-4">
                     {plan.limitations.map((limitation, idx) => (
-                      <div key={idx} className="flex items-start gap-3 opacity-60">
-                        <span className="text-slate-400 font-bold mt-0.5">✗</span>
-                        <span className="text-slate-600 text-sm leading-relaxed">{limitation}</span>
+                      <div key={idx} className="flex items-start gap-3 opacity-70">
+                        <span className="text-2xl mt-0.5">😾</span>
+                        <div 
+                          className="text-slate-600 text-sm leading-relaxed"
+                          dangerouslySetInnerHTML={{
+                            __html: limitation.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                          }}
+                        />
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {plan.bottomText && (
+                  <div className="border-t pt-4 mt-4 text-center">
+                    <p className="text-sm font-medium text-slate-700">
+                      {plan.bottomText}
+                    </p>
                   </div>
                 )}
               </div>
@@ -199,7 +230,7 @@ export default function PricingCards() {
               {plan.urgent && (
                 <div className="text-center mt-3">
                   <p className="text-xs text-slate-600">
-                    <span className="text-red-600 font-semibold">Limited time:</span> Regular price ₹269 from tomorrow
+                    <span className="text-red-600 font-semibold">Limited time:</span> Regular price ₹369 from tomorrow
                   </p>
                 </div>
               )}

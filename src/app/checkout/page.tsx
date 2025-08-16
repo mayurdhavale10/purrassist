@@ -1,17 +1,19 @@
 "use client";
 
 /**
- * 
- * - Added `phone` state + input so user enters phone (no more hard-coded number)
- * - Pulled email from NextAuth session (`useSession`) and send it to backend
- * - Light validation for phone number before calling /api/payment/create-order
- * - Kept Suspense wrapper to fix CSR bailout build error
- * - Preserved your CDN+NPM Cashfree SDK loading fallback and all UI/UX
+ * Checkout page
+ * - Adds `phone` state & input (no more hard-coded number)
+ * - Uses NextAuth session email (const { data: session } = useSession())
+ * - Light phone validation before calling /api/payment/create-order
+ * - Keeps Suspense wrapper to satisfy Next.js CSR bailout build rule
+ * - Preserves your npm+CDN Cashfree SDK fallback and all UI/UX
+ * - NOW includes FloatingPeopleBg on all plan pages
  */
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import FloatingPeopleBg from "@/components/FloatingPeopleBg"; // <<— add this import
 
 // ----- Cashfree SDK dynamic import (npm first, CDN fallback) -----
 let loadCashfree: any = null;
@@ -51,7 +53,8 @@ function CheckoutInner() {
   const planId = params.get("plan") as keyof typeof PLANS;
   const plan = PLANS[planId];
 
-  const session = useSession();      // ← pulls logged-in user (email, etc.)
+  // ✅ Correct way to get session
+  const { data: session } = useSession();
 
   // ---- UI state ----
   const [loading, setLoading] = useState(false);
@@ -61,7 +64,13 @@ function CheckoutInner() {
   // NEW: phone state from user input (instead of hard-coded)
   const [phone, setPhone] = useState("");
 
-  // (Optional) Pre-fill phone if you later store it in DB and fetch it here
+  // Strip non-digits as the user types (keeps UX tidy)
+  const onPhoneChange = (v: string) => setPhone(v.replace(/\D/g, ""));
+
+  // ---- Simple phone validation (10+ digits) ----
+  const isValidPhone = useMemo(() => phone.replace(/\D/g, "").length >= 10, [phone]);
+
+  // (Optional) Pre-fill phone later from DB if you store it; left blank intentionally for now
   useEffect(() => {
     // placeholder for future autofill logic if you store phone in User model
   }, []);
@@ -101,7 +110,7 @@ function CheckoutInner() {
 
       const tryUrl = () => {
         if (idx >= cdnUrls.length) {
-          reject(new Error("Failed to load Cashfree SDK from all CDN source"));
+          reject(new Error("Failed to load Cashfree SDK from all CDN sources"));
           return;
         }
 
@@ -149,12 +158,6 @@ function CheckoutInner() {
     });
   };
 
-  // ---- Simple phone validation (10+ digits) ----
-  const isValidPhone = (value: string) => {
-    const digits = value.replace(/\D/g, "");
-    return digits.length >= 10;
-  };
-
   // ---- Payment click handler ----
   const handlePayment = async () => {
     setLoading(true);
@@ -162,7 +165,7 @@ function CheckoutInner() {
 
     try {
       // Validate phone before hitting server
-      if (!isValidPhone(phone)) {
+      if (!isValidPhone) {
         setError("Please enter a valid phone number (10+ digits).");
         setLoading(false);
         return;
@@ -171,8 +174,8 @@ function CheckoutInner() {
       // Load Cashfree SDK
       const cashfree = await loadCashfreeSDK();
 
-      // Use email from session (backend/webhook will rely on this to update the correct user)
-      const email = session.data?.user?.email;  
+      // ✅ Use email from session (webhook uses this to update the correct user)
+      const email = session?.user?.email || undefined;
 
       // Create order on your API
       const res = await fetch("/api/payment/create-order", {
@@ -188,19 +191,22 @@ function CheckoutInner() {
       const data = await res.json();
       console.log("[Payment] /create-order response:", data);
 
-      if (!res.ok || !data?.paymentSessionId) {
+      if (!res.ok || !data?.payment_session_id && !data?.paymentSessionId) {
+        // support either snake_case or camelCase depending on your backend response
         throw new Error(data?.error || "Failed to initialize payment session");
       }
+
+      const sessionId = data.paymentSessionId ?? data.payment_session_id;
 
       // Kick off Cashfree checkout
       if (cashfree?.checkout) {
         await cashfree.checkout({
-          paymentSessionId: data.paymentSessionId,
+          paymentSessionId: sessionId,
           redirectTarget: "_self",
         });
       } else if (cashfree?.redirect) {
         await cashfree.redirect({
-          paymentSessionId: data.paymentSessionId,
+          paymentSessionId: sessionId,
           returnUrl: `${window.location.origin}/payment/return`,
         });
       } else {
@@ -216,11 +222,14 @@ function CheckoutInner() {
     }
   };
 
-  // ===== Free plan fast path (unchanged) =====
+  // ===== Free plan fast path (WITH FLOATING BACKGROUND) =====
   if (plan && plan.price === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: "#d2e8fe" }}>
-        <div className="w-full max-w-md">
+      <div className="relative min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: "#d2e8fe" }}>
+        {/* floating people behind card */}
+        <FloatingPeopleBg />
+        
+        <div className="relative w-full max-w-md">
           <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-8">
             <div className="flex justify-center mb-6">
               <img src="/purr_assit_logo.webp" alt="PurrAssist Logo" className="w-20 h-20 object-contain" />
@@ -267,9 +276,12 @@ function CheckoutInner() {
     );
   }
 
-  // ===== Paid plan UI (with phone field) =====
+  // ===== Paid plan UI (WITH FLOATING BACKGROUND) =====
   return (
-    <div className="min-h-screen relative flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#f0f7ff] via-white to-[#f6fff6]">
+    <div className="relative min-h-screen flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#f0f7ff] via-white to-[#f6fff6]">
+      {/* floating people behind card */}
+      <FloatingPeopleBg />
+
       {/* Soft gradient background blobs */}
       <div className="pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black,transparent_70%)]">
         <div className="absolute -top-20 -left-16 w-80 h-80 rounded-full bg-emerald-200/40 blur-3xl" />
@@ -305,7 +317,7 @@ function CheckoutInner() {
               inputMode="numeric"
               pattern="[0-9]*"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => onPhoneChange(e.target.value)}
               placeholder="e.g., 9876543210"
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500"
             />
@@ -327,9 +339,11 @@ function CheckoutInner() {
 
           <button
             onClick={handlePayment}
-            disabled={loading}
+            disabled={loading || !isValidPhone}
             className={`mt-5 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-white font-semibold shadow-lg transition-all ${
-              loading ? "bg-emerald-400 cursor-not-allowed" : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95"
+              loading || !isValidPhone
+                ? "bg-emerald-400/70 cursor-not-allowed"
+                : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95"
             }`}
           >
             {loading ? (
