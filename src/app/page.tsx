@@ -88,6 +88,14 @@ export default function Home() {
     return () => io.disconnect();
   }, []);
 
+  // Function to scroll to pricing section
+  const scrollToPricing = () => {
+    const pricingSection = document.querySelector('#pricing-section');
+    if (pricingSection) {
+      pricingSection.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   return (
     <>
       {/* Offer Ticker at the very top */}
@@ -127,8 +135,8 @@ export default function Home() {
 
 
 
-        {/* Independence Day Tricolor Offer Marquee - Glassmorphism Style */}
-        <div className="relative w-full h-18 overflow-hidden">
+        {/* Freedom Sale Tricolor Offer Marquee - Updated */}
+        <div className="relative w-full h-18 overflow-hidden cursor-pointer" onClick={scrollToPricing}>
           {/* Animated tricolor background with blur effect */}
           <div className="absolute inset-0 flex flex-col backdrop-blur-md">
             <div className="flex-1 bg-gradient-to-r from-orange-400/80 via-orange-500/70 to-orange-600/80"></div>
@@ -154,20 +162,20 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Marquee content overlay */}
+          {/* Updated Marquee content overlay */}
           <div className="absolute inset-0 flex items-center">
             <div className="tricolor-marquee whitespace-nowrap flex items-center">
               <span className="marquee-item">
-                🇮🇳 <strong>Independence Day Special:</strong> FREE Basic Access + Premium VIP at ₹69 only! 
+                🇮🇳 <strong>FREEDOM SALE ENDS SOON:</strong> FREE Basic Access + Premium VIP at ₹169 only! 
               </span>
               <span className="marquee-item">
-                🎯 <strong>Today Only:</strong> Lock in Premium features forever at 75% OFF! 
+                🎯 <strong>Today Only:</strong> Lock in Premium features forever at 90% OFF! 
               </span>
               <span className="marquee-item">
-                ⚡ <strong>Exclusive:</strong> Boys Mode • Girls Mode • Multi-campus • All at Independence Day prices! 
+                ⚡ <strong>Exclusive:</strong> Boys Mode • Girls Mode • Multi-campus • All at Freedom Sale prices! 
               </span>
               <span className="marquee-item">
-                🔥 <strong>Hurry:</strong> Prices jump tomorrow - Basic ₹69, Premium ₹269. Get VIP access now! 
+                🔥 <strong>Hurry:</strong> Sale ends at midnight - Basic ₹69, Premium ₹169. Get VIP access now! 
               </span>
               <span className="marquee-item">
                 🇮🇳 <strong>Jai Hind:</strong> Connect with verified students across India - your campus awaits! 
@@ -175,16 +183,16 @@ export default function Home() {
               
               {/* Duplicate for seamless loop */}
               <span className="marquee-item">
-                🇮🇳 <strong>Independence Day Special:</strong> FREE Basic Access + Premium VIP at ₹69 only! 
+                🇮🇳 <strong>FREEDOM SALE ENDS SOON:</strong> FREE Basic Access + Premium VIP at ₹169 only! 
               </span>
               <span className="marquee-item">
-                🎯 <strong>Today Only:</strong> Lock in Premium features forever at 75% OFF! 
+                🎯 <strong>Today Only:</strong> Lock in Premium features forever at 90% OFF! 
               </span>
               <span className="marquee-item">
-                ⚡ <strong>Exclusive:</strong> Boys Mode • Girls Mode • Multi-campus • All at Independence Day prices! 
+                ⚡ <strong>Exclusive:</strong> Boys Mode • Girls Mode • Multi-campus • All at Freedom Sale prices! 
               </span>
               <span className="marquee-item">
-                🔥 <strong>Hurry:</strong> Prices jump tomorrow - Basic ₹69, Premium ₹269. Get VIP access now! 
+                🔥 <strong>Hurry:</strong> Sale ends at midnight - Basic ₹69, Premium ₹169. Get VIP access now! 
               </span>
               <span className="marquee-item">
                 🇮🇳 <strong>Jai Hind:</strong> Connect with verified students across India - your campus awaits! 
@@ -255,29 +263,23 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* CTAs */}
-              <div className="mt-6 flex items-center gap-4 animate-fade-in-up animation-delay-800">
+              {/* Centered CTA Button */}
+              <div className="mt-6 flex justify-center animate-fade-in-up animation-delay-800">
                 {session.data ? (
                   <a
                     href="/video"
-                    className="px-6 py-3 rounded-xl text-white font-semibold shadow-lg transition bg-gradient-to-r from-pink-500 via-yellow-400 to-blue-500 hover:opacity-90"
+                    className="px-8 py-4 rounded-xl text-white font-semibold shadow-lg transition bg-gradient-to-r from-pink-500 via-yellow-400 to-blue-500 hover:opacity-90 text-lg"
                   >
                     Start Video Chatting
                   </a>
                 ) : (
                   <button
                     onClick={() => signIn("google")}
-                    className="px-6 py-3 rounded-xl text-white font-semibold shadow-lg transition bg-gradient-to-r from-pink-500 via-yellow-400 to-blue-500 hover:opacity-90"
+                    className="px-8 py-4 rounded-xl text-white font-semibold shadow-lg transition bg-gradient-to-r from-pink-500 via-yellow-400 to-blue-500 hover:opacity-90 text-lg"
                   >
                     Start Video Chatting
                   </button>
                 )}
-                <a
-                  href="#how-it-works"
-                  className="px-6 py-3 rounded-xl font-semibold border border-teal-500 text-teal-700 hover:bg-teal-50 transition"
-                >
-                  How It Works
-                </a>
               </div>
             </div>
 
@@ -461,7 +463,9 @@ export default function Home() {
             </section>
 
             {/* ===== PRICING CARDS - Added right after features chat ===== */}
-            <PricingCards />
+            <div id="pricing-section">
+              <PricingCards />
+            </div>
 
             {/* Real Connection Stories with Images - NEW SECTION */}
             <section className="relative z-10 w-full max-w-6xl mx-auto mt-16 px-4 scroll-animate slide-up">
