@@ -16,7 +16,9 @@ type MatchingOption = {
   label: string;
   description: string;
   icon: string;
-  requiresGender?: string;
+  requiresPlan?: "free" | "gender" | "intercollege";
+  disabled?: boolean;
+  unlockMessage?: string;
 };
 
 type UserPlan = {
@@ -31,7 +33,6 @@ type UserPlan = {
     planExpiry?: string;
     daysRemaining?: number;
   };
-  matchingOptions: MatchingOption[];
   planStatus: {
     isActive: boolean;
     planName: string;
@@ -42,7 +43,7 @@ type UserPlan = {
 
 const SOCKET_URL = "https://3d0a9a98866f.ngrok-free.app";
 
-// Keep TURN/STUN as you haddd
+// Keep TURN/STUN as you had
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "turn:111.93.74.158:3478", username: "freeuser", credential: "freepassword" },
@@ -82,6 +83,87 @@ export default function VideoPageClient() {
   const [pendingStart, setPendingStart] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Generate all matching options based on user's plan
+  const matchingOptions = useMemo((): MatchingOption[] => {
+    if (!userPlan) return [];
+
+    const userPlanType = userPlan.user.hasActivePlan ? userPlan.user.planType : "free";
+    const college = userPlan.user.college;
+
+    const allOptions: MatchingOption[] = [
+      // Free plan options (same college, any gender)
+      {
+        type: "same_college_any",
+        label: "Same College",
+        description: `Match with anyone from ${college}`,
+        icon: "🏫",
+        requiresPlan: "free",
+      },
+      
+      // Gender plan options (same college, specific gender)
+      {
+        type: "same_college_male",
+        label: "Same College - Male",
+        description: `Match with males from ${college}`,
+        icon: "👨‍🎓",
+        requiresPlan: "gender",
+      },
+      {
+        type: "same_college_female",
+        label: "Same College - Female", 
+        description: `Match with females from ${college}`,
+        icon: "👩‍🎓",
+        requiresPlan: "gender",
+      },
+      
+      // Inter-college plan options
+      {
+        type: "any_college_any",
+        label: "Any College",
+        description: "Match with anyone from any college",
+        icon: "🌍",
+        requiresPlan: "intercollege",
+      },
+      {
+        type: "any_college_male",
+        label: "Any College - Male",
+        description: "Match with males from any college", 
+        icon: "🌍👨‍🎓",
+        requiresPlan: "intercollege",
+      },
+      {
+        type: "any_college_female",
+        label: "Any College - Female",
+        description: "Match with females from any college",
+        icon: "🌍👩‍🎓", 
+        requiresPlan: "intercollege",
+      },
+    ];
+
+    // Mark options as disabled if user doesn't have the required plan
+    return allOptions.map(option => {
+      const hasAccess = 
+        option.requiresPlan === "free" || 
+        (option.requiresPlan === "gender" && (userPlanType === "gender" || userPlanType === "intercollege")) ||
+        (option.requiresPlan === "intercollege" && userPlanType === "intercollege");
+
+      if (!hasAccess) {
+        const planNames = {
+          gender: "Gender Plan",
+          intercollege: "Inter-College Plan"
+        };
+        
+        return {
+          ...option,
+          disabled: true,
+          unlockMessage: `Unlock with ${planNames[option.requiresPlan as keyof typeof planNames]}`
+        };
+      }
+      
+      return option;
+    });
+  }, [userPlan]);
+
   // Detect mobile/tablet
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 768);
@@ -120,9 +202,10 @@ export default function VideoPageClient() {
       const planData: UserPlan = await res.json();
       setUserPlan(planData);
 
-      // Auto-select the first option (covers free plan with a single option)
-      if (planData.matchingOptions?.length > 0) {
-        setSelectedMatchingOption(planData.matchingOptions[0].type);
+      // Auto-select the first available (non-disabled) option
+      const availableOptions = matchingOptions.filter(opt => !opt.disabled);
+      if (availableOptions.length > 0) {
+        setSelectedMatchingOption(availableOptions[0].type);
       }
 
       setStatusMessage("Ready to start! Choose your matching preference.");
@@ -133,6 +216,16 @@ export default function VideoPageClient() {
       setLoading(false);
     }
   };
+
+  // Update selected option when matching options change
+  useEffect(() => {
+    if (matchingOptions.length > 0 && !selectedMatchingOption) {
+      const availableOptions = matchingOptions.filter(opt => !opt.disabled);
+      if (availableOptions.length > 0) {
+        setSelectedMatchingOption(availableOptions[0].type);
+      }
+    }
+  }, [matchingOptions, selectedMatchingOption]);
 
   // Camera lifecycle
   useEffect(() => {
@@ -367,7 +460,7 @@ export default function VideoPageClient() {
         setHasEmittedRegister(true);
       }
       setPendingStart(true);
-      setStatusMessage("Registering… we’ll start as soon as that’s done.");
+      setStatusMessage("Registering… we'll start as soon as that's done.");
       return;
     }
 
@@ -483,8 +576,6 @@ export default function VideoPageClient() {
     boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
     flex: isMobile ? "1" : "none",
   };
-
-  const onlyOneOption = userPlan?.matchingOptions?.length === 1;
 
   return (
     <div style={containerStyle}>
@@ -639,57 +730,51 @@ export default function VideoPageClient() {
           {userPlan && (
             <div style={controlsCardStyle}>
               <h4 style={{ margin: "0 0 10px", fontSize: isMobile ? "12px" : "14px", color: "#374151" }}>
-                Matching Preference
+                Matching Preferences
               </h4>
 
-              {/* If only one option (free plan), render it as a pill (non-radio) and it's already selected */}
-              {onlyOneOption ? (
-                <div
+              {matchingOptions.map((option) => (
+                <label
+                  key={option.type}
                   style={{
-                    padding: "10px 12px",
-                    border: "1px solid #e5e7eb",
+                    display: "block",
+                    padding: "8px",
+                    margin: "5px 0",
+                    border: `1px solid ${option.disabled ? "#f3f4f6" : "#e5e7eb"}`,
                     borderRadius: "8px",
-                    background: "#e0e7ff",
+                    cursor: option.disabled ? "not-allowed" : "pointer",
                     fontSize: "12px",
+                    background: option.disabled 
+                      ? "#f8f9fa" 
+                      : selectedMatchingOption === option.type 
+                        ? "#e0e7ff" 
+                        : "white",
+                    opacity: option.disabled ? 0.6 : 1,
                   }}
                 >
-                  <strong>{userPlan.matchingOptions[0].icon} {userPlan.matchingOptions[0].label}</strong>
+                  <input
+                    type="radio"
+                    name="matchingOption"
+                    value={option.type}
+                    checked={selectedMatchingOption === option.type}
+                    onChange={(e) => !option.disabled && setSelectedMatchingOption(e.target.value)}
+                    disabled={option.disabled}
+                    style={{ marginRight: "8px" }}
+                  />
+                  <span style={{ fontWeight: "500" }}>
+                    {option.icon} {option.label}
+                  </span>
                   <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "2px" }}>
-                    {userPlan.matchingOptions[0].description}
+                    {option.disabled ? (
+                      <span style={{ color: "#ef4444", fontWeight: "500" }}>
+                        🔒 {option.unlockMessage}
+                      </span>
+                    ) : (
+                      option.description
+                    )}
                   </div>
-                </div>
-              ) : (
-                userPlan.matchingOptions.map((option) => (
-                  <label
-                    key={option.type}
-                    style={{
-                      display: "block",
-                      padding: "8px",
-                      margin: "5px 0",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "8px",
-                      cursor: "pointer",
-                      fontSize: "12px",
-                      background: selectedMatchingOption === option.type ? "#e0e7ff" : "white",
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="matchingOption"
-                      value={option.type}
-                      checked={selectedMatchingOption === option.type}
-                      onChange={(e) => setSelectedMatchingOption(e.target.value)}
-                      style={{ marginRight: "8px" }}
-                    />
-                    <span style={{ fontWeight: "500" }}>
-                      {option.icon} {option.label}
-                    </span>
-                    <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "2px" }}>
-                      {option.description}
-                    </div>
-                  </label>
-                ))
-              )}
+                </label>
+              ))}
             </div>
           )}
 
@@ -698,7 +783,6 @@ export default function VideoPageClient() {
             {!isConnected ? (
               <button
                 onClick={handleStart}
-                // ⬇️ Enable Start as long as we have a selected option; registration will be queued if not ready
                 disabled={!selectedMatchingOption}
                 style={{
                   width: "100%",
