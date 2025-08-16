@@ -101,7 +101,7 @@ function CheckoutInner() {
 
       const tryUrl = () => {
         if (idx >= cdnUrls.length) {
-          reject(new Error("Failed to load Cashfree SDK from all CDN sources"));
+          reject(new Error("Failed to load Cashfree SDK from all CDN source"));
           return;
         }
 
