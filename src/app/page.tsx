@@ -471,7 +471,7 @@ export default function Home() {
                   <div className="relative rounded-2xl overflow-hidden mb-4 shadow-lg">
                     <Image
                       src="/bike.webp"
-                      alt="Bike riding session"
+                      alt="Bike riding sessio"
                       width={400}
                       height={300}
                       className="w-full h-64 object-cover"
