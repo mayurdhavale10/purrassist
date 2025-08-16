@@ -283,10 +283,10 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Cat animation */}
+            {/* Cat animation - Updated to use WebM */}
             <section className="relative z-10 w-full flex justify-center mt-10 md:mt-14 lg:mt-16 scroll-animate slide-up">
               <video
-                src="/purr_cat_dancing.mp4"
+                src="/purr_cat_dancing.webm"
                 className="w-[240px] sm:w-[300px] md:w-[420px] lg:w-[520px] xl:w-[640px] drop-shadow-2xl rounded-xl"
                 autoPlay
                 loop
@@ -354,7 +354,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ===== FEATURES CHAT (WhatsApp-like layout) ===== */}
+            {/* ===== FEATURES CHAT (WhatsApp-like layout) - Updated videos to WebM ===== */}
             <section className="relative z-10 w-full max-w-3xl mx-auto mt-12 px-4 scroll-animate slide-left">
               <div className="rounded-3xl border bg-gradient-to-b from-emerald-50 via-slate-50 to-blue-50 shadow-md p-4 md:p-6">
                 {/* Message 1: Received (left) */}
@@ -368,7 +368,7 @@ export default function Home() {
                     </div>
                     <div className="rounded-xl overflow-hidden ring-1 ring-black/5">
                       <video
-                        src="/feature1_cat.mp4"
+                        src="/feature1_cat.webm"
                         className="w-[240px] sm:w-[280px] md:w-[320px]"
                         autoPlay
                         loop
@@ -395,7 +395,7 @@ export default function Home() {
                     </div>
                     <div className="rounded-xl overflow-hidden ring-1 ring-black/5">
                       <video
-                        src="/feature2_cat.mp4"
+                        src="/feature2_cat.webm"
                         className="w-[240px] sm:w-[280px] md:w-[320px]"
                         autoPlay
                         loop
@@ -428,7 +428,7 @@ export default function Home() {
                     </div>
                     <div className="rounded-xl overflow-hidden ring-1 ring-black/5">
                       <video
-                        src="/feature3_cat.mp4"
+                        src="/feature3_cat.webm"
                         className="w-[240px] sm:w-[280px] md:w-[320px]"
                         autoPlay
                         loop
@@ -475,7 +475,7 @@ export default function Home() {
                   <div className="relative rounded-2xl overflow-hidden mb-4 shadow-lg">
                     <Image
                       src="/bike.webp"
-                      alt="Bike riding sessio"
+                      alt="Bike riding session"
                       width={400}
                       height={300}
                       className="w-full h-64 object-cover"
