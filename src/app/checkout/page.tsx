@@ -48,7 +48,8 @@ function CheckoutInner() {
       try {
         console.log("[Payment] Loading Cashfree via npm package...");
         const cashfree = await loadCashfree({
-          mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === "production" ? "production" : "sandbox",
+        //   mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === "production" ? "production" : "sandbox",
+        mode: "sandbox",
         });
         console.log("[Payment] Cashfree loaded via npm package");
         return cashfree;

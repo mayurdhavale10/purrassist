@@ -41,9 +41,11 @@ export async function POST(req: Request) {
       order_note: `Subscription for ${PLANS[planId].name} plan`,
     };
 
-    const cashfreeUrl = process.env.NODE_ENV === "production"
-      ? "https://api.cashfree.com/pg/orders"
-      : "https://sandbox.cashfree.com/pg/orders";
+    // const cashfreeUrl = process.env.NODE_ENV === "production"
+    //   ? "https://api.cashfree.com/pg/orders"
+    //   : "https://sandbox.cashfree.com/pg/orders";
+
+    const cashfreeUrl = "https://sandbox.cashfree.com/pg/orders";
 
     const response = await fetch(cashfreeUrl, {
       method: "POST",
