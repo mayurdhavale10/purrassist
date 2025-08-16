@@ -2,7 +2,6 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { io, Socket } from "socket.io-client";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 
 type Role = "initiator" | "answerer";
 type Message = {
@@ -43,7 +42,7 @@ type UserPlan = {
 
 const SOCKET_URL = "https://3d0a9a98866f.ngrok-free.app";
 
-// Keep TURN/STUN as you had
+// Keep TURN/STUN as you hadd
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "turn:111.93.74.158:3478", username: "freeuser", credential: "freepassword" },
@@ -52,7 +51,6 @@ const ICE_SERVERS: RTCConfiguration["iceServers"] = [
 
 export default function VideoPageClient() {
   const { data: session, status } = useSession();
-  const router = useRouter();
 
   // Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -83,26 +81,6 @@ export default function VideoPageClient() {
   const [hasEmittedRegister, setHasEmittedRegister] = useState(false);
   const [pendingStart, setPendingStart] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // NEW: Finding overlay state
-  const [isFinding, setIsFinding] = useState(false);
-
-  // NEW: Gate flags derived from plan types
-  const planType = userPlan?.user?.planType ?? "free";
-  const canSameCollege = true; // always
-  const canInterCollege = planType === "intercollege"; // premium
-  const canGenderFilter = planType === "gender" || planType === "intercollege"; // basic or premium
-
-  // Friendly copy for the plan chip
-  const planChip =
-    planType === "intercollege" ? "Premium" :
-    planType === "gender" ? "Basic" :
-    "Free";
-
-  // Upgrade helper
-  const goUpgrade = (which: "basic" | "premium") => {
-    router.push(`/checkout?plan=${which}`);
-  };
 
   // Detect mobile/tablet
   useEffect(() => {
@@ -145,9 +123,6 @@ export default function VideoPageClient() {
       // Auto-select the first option (covers free plan with a single option)
       if (planData.matchingOptions?.length > 0) {
         setSelectedMatchingOption(planData.matchingOptions[0].type);
-      } else {
-        // Default to same college if no options
-        setSelectedMatchingOption("same_college_any");
       }
 
       setStatusMessage("Ready to start! Choose your matching preference.");
@@ -232,7 +207,6 @@ export default function VideoPageClient() {
     });
 
     socket.on("searching", () => {
-      setIsFinding(true); // NEW
       setStatusMessage("Looking for someone you can chat with...");
       setIsConnected(false);
       setMessages([]);
@@ -242,7 +216,6 @@ export default function VideoPageClient() {
     });
 
     socket.on("matchFound", async ({ partnerId: pid, role }: { partnerId: string; role: Role }) => {
-      setIsFinding(false); // NEW
       setPartnerId(pid);
       setRole(role);
       setStatusMessage("You're now chatting with a random stranger. Say hi!");
@@ -305,7 +278,6 @@ export default function VideoPageClient() {
     });
 
     socket.on("partner-left", () => {
-      setIsFinding(false); // NEW
       setStatusMessage("Stranger has disconnected.");
       setIsConnected(false);
       setMessages((prev) => [
@@ -395,12 +367,10 @@ export default function VideoPageClient() {
         setHasEmittedRegister(true);
       }
       setPendingStart(true);
-      setStatusMessage("Registering… we'll start as soon as that's done.");
+      setStatusMessage("Registering… we’ll start as soon as that’s done.");
       return;
     }
 
-    // NEW: Set finding state
-    setIsFinding(true);
     // registered → go
     socket.emit("findPartner", { email: session.user.email, matchingPreference: selectedMatchingOption });
     setStatusMessage("Looking for someone you can chat with...");
@@ -408,7 +378,6 @@ export default function VideoPageClient() {
 
   function handleNext() {
     if (!socketRef.current) return;
-    setIsFinding(true); // NEW
     socketRef.current.emit("skip");
     setStatusMessage("Looking for a new person to chat with...");
     setIsConnected(false);
@@ -441,92 +410,6 @@ export default function VideoPageClient() {
     if (!socketRef.current || !isConnected) return;
     socketRef.current.emit("typing", { target: partnerId, isTyping: true });
     setTimeout(() => socketRef.current?.emit("typing", { target: partnerId, isTyping: false }), 2000);
-  }
-
-  // NEW: FeatureTile component
-  function FeatureTile(props: {
-    title: string;
-    subtitle: string;
-    enabled: boolean;
-    selected: boolean;
-    onSelect?: () => void;
-    upgradeTo?: "basic" | "premium";
-  }) {
-    const { title, subtitle, enabled, selected, onSelect, upgradeTo } = props;
-    return (
-      <div
-        onClick={() => enabled && onSelect?.()}
-        style={{
-          border: selected ? "2px solid #6366f1" : "1px solid #e5e7eb",
-          borderRadius: isMobile ? 8 : 12,
-          padding: isMobile ? 10 : 12,
-          background: enabled ? (selected ? "#eef2ff" : "#fff") : "#f8fafc",
-          opacity: enabled ? 1 : 0.7,
-          cursor: enabled ? "pointer" : "default",
-          transition: "all .2s ease",
-          minHeight: isMobile ? "auto" : "80px",
-        }}
-      >
-        <div style={{ 
-          display: "flex", 
-          justifyContent: "space-between", 
-          alignItems: isMobile ? "flex-start" : "center", 
-          gap: 8,
-          flexDirection: isMobile ? "column" : "row"
-        }}>
-          <div style={{ 
-            fontWeight: 700, 
-            color: "#111827", 
-            fontSize: isMobile ? 13 : 14,
-            lineHeight: isMobile ? "1.3" : "1.2"
-          }}>{title}</div>
-          <span
-            style={{
-              fontSize: isMobile ? 10 : 11,
-              padding: isMobile ? "2px 6px" : "2px 8px",
-              borderRadius: 999,
-              background: "#eef2ff",
-              color: "#4338ca",
-              border: "1px solid #e0e7ff",
-              whiteSpace: "nowrap",
-              alignSelf: isMobile ? "flex-start" : "auto",
-            }}
-          >
-            {enabled ? "Included" : upgradeTo === "premium" ? "Premium" : "Basic"}
-          </span>
-        </div>
-        <div style={{ 
-          fontSize: isMobile ? 11 : 12, 
-          color: "#6b7280", 
-          marginTop: isMobile ? 6 : 4,
-          lineHeight: "1.4"
-        }}>{subtitle}</div>
-
-        {!enabled && upgradeTo && (
-          <div style={{ marginTop: isMobile ? 8 : 10 }}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                goUpgrade(upgradeTo);
-              }}
-              style={{
-                fontSize: isMobile ? 11 : 12,
-                padding: isMobile ? "6px 8px" : "8px 10px",
-                borderRadius: isMobile ? 8 : 10,
-                border: "1px solid #d1d5db",
-                background: "linear-gradient(90deg, #22c55e, #10b981)",
-                color: "white",
-                fontWeight: 600,
-                width: "100%",
-                cursor: "pointer",
-              }}
-            >
-              Upgrade to {upgradeTo === "premium" ? "Premium" : "Basic"}
-            </button>
-          </div>
-        )}
-      </div>
-    );
   }
 
   // Loading & unauthenticated
@@ -577,10 +460,6 @@ export default function VideoPageClient() {
     borderRadius: "10px",
     objectFit: "cover",
   };
-  const localVideoStyle: React.CSSProperties = {
-    ...videoStyle,
-    transform: "scaleX(-1)", // Flip the local video horizontally
-  };
   const chatSectionStyle: React.CSSProperties = {
     flex: 1,
     background: "#fff",
@@ -605,6 +484,8 @@ export default function VideoPageClient() {
     flex: isMobile ? "1" : "none",
   };
 
+  const onlyOneOption = userPlan?.matchingOptions?.length === 1;
+
   return (
     <div style={containerStyle}>
       <div style={mainContainerStyle}>
@@ -614,7 +495,7 @@ export default function VideoPageClient() {
             <div style={videoContainerStyle}>
               <div style={videoWrapperStyle}>
                 <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>You</div>
-                <video ref={localVideoRef} autoPlay muted playsInline style={localVideoStyle} />
+                <video ref={localVideoRef} autoPlay muted playsInline style={videoStyle} />
               </div>
               <div style={videoWrapperStyle}>
                 <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>Stranger</div>
@@ -754,131 +635,61 @@ export default function VideoPageClient() {
             </div>
           )}
 
-          {/* NEW: Matching Options (Omegle-like tiles with gating) */}
+          {/* Matching Options */}
           {userPlan && (
             <div style={controlsCardStyle}>
-              {/* Header with plan chip */}
-              <div style={{ 
-                display: "flex", 
-                justifyContent: "space-between", 
-                alignItems: isMobile ? "flex-start" : "center", 
-                marginBottom: isMobile ? 12 : 10,
-                flexDirection: isMobile ? "column" : "row",
-                gap: isMobile ? 6 : 0
-              }}>
-                <h4 style={{ 
-                  margin: 0, 
-                  fontSize: isMobile ? 13 : 14, 
-                  color: "#374151",
-                  fontWeight: 600
-                }}>Matching Preference</h4>
-                <span
+              <h4 style={{ margin: "0 0 10px", fontSize: isMobile ? "12px" : "14px", color: "#374151" }}>
+                Matching Preference
+              </h4>
+
+              {/* If only one option (free plan), render it as a pill (non-radio) and it's already selected */}
+              {onlyOneOption ? (
+                <div
                   style={{
-                    fontSize: isMobile ? 10 : 11,
-                    padding: isMobile ? "2px 6px" : "2px 8px",
-                    borderRadius: 999,
-                    background: planType === "intercollege" ? "#ecfeff" :
-                                planType === "gender"       ? "#f0fdf4" : "#f1f5f9",
-                    color:      planType === "intercollege" ? "#0e7490" :
-                                planType === "gender"       ? "#047857" : "#334155",
-                    border:     "1px solid #e2e8f0",
-                    alignSelf: isMobile ? "flex-start" : "auto",
+                    padding: "10px 12px",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "8px",
+                    background: "#e0e7ff",
+                    fontSize: "12px",
                   }}
                 >
-                  {planChip} Plan
-                </span>
-              </div>
-
-              <div style={{ display: "grid", gap: isMobile ? 8 : 10 }}>
-                {/* 1) Same-College (always allowed) */}
-                <FeatureTile
-                  title="Same-College Video Chat"
-                  subtitle="Connect only with students from your college."
-                  enabled={canSameCollege}
-                  selected={selectedMatchingOption === "same_college_any"}
-                  onSelect={() => setSelectedMatchingOption("same_college_any")}
-                />
-
-                {/* 2) Inter-College (Premium) */}
-                <FeatureTile
-                  title="Same + Inter-College Chat"
-                  subtitle="Video chat across campuses."
-                  enabled={canInterCollege}
-                  selected={
-                    selectedMatchingOption === "any_college_any" ||
-                    selectedMatchingOption === "any_college_male" ||
-                    selectedMatchingOption === "any_college_female"
-                  }
-                  onSelect={() => setSelectedMatchingOption("any_college_any")}
-                  upgradeTo="premium"
-                />
-
-                {/* 3) Gender filter (Basic & Premium) */}
-                <FeatureTile
-                  title="Talk to Who You Want"
-                  subtitle="Choose your preferred gender (boys/girls)."
-                  enabled={canGenderFilter}
-                  selected={
-                    selectedMatchingOption === "same_college_male" ||
-                    selectedMatchingOption === "same_college_female" ||
-                    selectedMatchingOption === "any_college_male" ||
-                    selectedMatchingOption === "any_college_female"
-                  }
-                  onSelect={() => {
-                    // choose a sensible default based on plan
-                    if (planType === "intercollege") {
-                      setSelectedMatchingOption("any_college_male");
-                    } else {
-                      setSelectedMatchingOption("same_college_male");
-                    }
-                  }}
-                  upgradeTo="basic"
-                />
-
-                {/* If user chose a gender tile, show small gender toggle pills */}
-                {canGenderFilter && (
-                  <div style={{ display: "flex", gap: isMobile ? 6 : 8, marginTop: isMobile ? 4 : 0 }}>
-                    <button
-                      onClick={() => setSelectedMatchingOption(
-                        planType === "intercollege" ? "any_college_male" : "same_college_male"
-                      )}
-                      style={{
-                        flex: 1,
-                        padding: isMobile ? "6px 8px" : "8px 10px",
-                        borderRadius: 999,
-                        border: "1px solid #d1d5db",
-                        background:
-                          selectedMatchingOption.includes("_male") ? "#dbeafe" : "white",
-                        fontSize: isMobile ? 11 : 12,
-                        fontWeight: 600,
-                        color: "#1f2937",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Boys
-                    </button>
-                    <button
-                      onClick={() => setSelectedMatchingOption(
-                        planType === "intercollege" ? "any_college_female" : "same_college_female"
-                      )}
-                      style={{
-                        flex: 1,
-                        padding: isMobile ? "6px 8px" : "8px 10px",
-                        borderRadius: 999,
-                        border: "1px solid #d1d5db",
-                        background:
-                          selectedMatchingOption.includes("_female") ? "#dbeafe" : "white",
-                        fontSize: isMobile ? 11 : 12,
-                        fontWeight: 600,
-                        color: "#1f2937",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Girls
-                    </button>
+                  <strong>{userPlan.matchingOptions[0].icon} {userPlan.matchingOptions[0].label}</strong>
+                  <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "2px" }}>
+                    {userPlan.matchingOptions[0].description}
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                userPlan.matchingOptions.map((option) => (
+                  <label
+                    key={option.type}
+                    style={{
+                      display: "block",
+                      padding: "8px",
+                      margin: "5px 0",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                      background: selectedMatchingOption === option.type ? "#e0e7ff" : "white",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="matchingOption"
+                      value={option.type}
+                      checked={selectedMatchingOption === option.type}
+                      onChange={(e) => setSelectedMatchingOption(e.target.value)}
+                      style={{ marginRight: "8px" }}
+                    />
+                    <span style={{ fontWeight: "500" }}>
+                      {option.icon} {option.label}
+                    </span>
+                    <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "2px" }}>
+                      {option.description}
+                    </div>
+                  </label>
+                ))
+              )}
             </div>
           )}
 
@@ -887,7 +698,7 @@ export default function VideoPageClient() {
             {!isConnected ? (
               <button
                 onClick={handleStart}
-                // Enable Start as long as we have a selected option; registration will be queued if not ready
+                // ⬇️ Enable Start as long as we have a selected option; registration will be queued if not ready
                 disabled={!selectedMatchingOption}
                 style={{
                   width: "100%",
@@ -997,77 +808,6 @@ export default function VideoPageClient() {
           )}
         </div>
       </div>
-
-      {/* Finder overlay */}
-      {isFinding && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(15, 23, 42, 0.35)",
-            backdropFilter: "blur(2px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 60,
-            padding: isMobile ? "20px" : "0",
-          }}
-        >
-          <div
-            style={{
-              background: "white",
-              borderRadius: isMobile ? 12 : 16,
-              padding: isMobile ? 16 : 20,
-              width: isMobile ? "100%" : 280,
-              maxWidth: isMobile ? "320px" : "280px",
-              textAlign: "center",
-              boxShadow: "0 20px 60px rgba(0,0,0,.2)",
-              border: "1px solid #e5e7eb",
-            }}
-          >
-            <img
-              src="/purr_assit_logo.webp"
-              alt="PurrAssist"
-              style={{ 
-                width: isMobile ? 40 : 48, 
-                height: isMobile ? 40 : 48, 
-                margin: "0 auto 8px", 
-                opacity: 0.9 
-              }}
-            />
-            <div style={{ 
-              fontWeight: 800, 
-              fontSize: isMobile ? 14 : 16, 
-              color: "#111827" 
-            }}>Finding someone…</div>
-            <div style={{ 
-              fontSize: isMobile ? 11 : 12, 
-              color: "#6b7280", 
-              marginTop: 4,
-              lineHeight: "1.4"
-            }}>
-              We'll connect you as soon as a match is ready.
-            </div>
-            <div
-              style={{
-                height: isMobile ? 3 : 4,
-                borderRadius: 999,
-                background: "linear-gradient(90deg,#60a5fa,#22c55e,#fbbf24,#38bdf8)",
-                marginTop: isMobile ? 10 : 12,
-                animation: "pulseBar 1.2s ease-in-out infinite",
-              }}
-            />
-          </div>
-          {/* tiny keyframes */}
-          <style>{`
-            @keyframes pulseBar {
-              0%   { opacity:.6; transform: scaleX(.85); }
-              50%  { opacity:1;  transform: scaleX(1); }
-              100% { opacity:.6; transform: scaleX(.85); }
-            }
-          `}</style>
-        </div>
-      )}
     </div>
   );
 }
