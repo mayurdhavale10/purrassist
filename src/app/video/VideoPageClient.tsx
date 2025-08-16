@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { useSession } from "next-auth/react";
 
@@ -16,9 +16,9 @@ type MatchingOption = {
   label: string;
   description: string;
   icon: string;
-  requiresPlan?: "free" | "gender" | "intercollege";
   disabled?: boolean;
-  unlockMessage?: string;
+  disabledReason?: string;
+  requiresGender?: boolean;
 };
 
 type UserPlan = {
@@ -33,6 +33,7 @@ type UserPlan = {
     planExpiry?: string;
     daysRemaining?: number;
   };
+  matchingOptions: MatchingOption[];
   planStatus: {
     isActive: boolean;
     planName: string;
@@ -43,7 +44,6 @@ type UserPlan = {
 
 const SOCKET_URL = "https://3d0a9a98866f.ngrok-free.app";
 
-// Keep TURN/STUN as you had
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "turn:111.93.74.158:3478", username: "freeuser", credential: "freepassword" },
@@ -76,93 +76,14 @@ export default function VideoPageClient() {
   // Plan-related
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
   const [selectedMatchingOption, setSelectedMatchingOption] = useState<string>("");
+  const [selectedGender, setSelectedGender] = useState<string>("any");
+  const [showToast, setShowToast] = useState<{ message: string; type: "error" | "info" } | null>(null);
 
   // Registration / lifecycle helpers
   const [isRegistered, setIsRegistered] = useState(false);
   const [hasEmittedRegister, setHasEmittedRegister] = useState(false);
   const [pendingStart, setPendingStart] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // Generate all matching options based on user's plan
-  const matchingOptions = useMemo((): MatchingOption[] => {
-    if (!userPlan) return [];
-
-    const userPlanType = userPlan.user.hasActivePlan ? userPlan.user.planType : "free";
-    const college = userPlan.user.college;
-
-    const allOptions: MatchingOption[] = [
-      // Free plan options (same college, any gender)
-      {
-        type: "same_college_any",
-        label: "Same College",
-        description: `Match with anyone from ${college}`,
-        icon: "🏫",
-        requiresPlan: "free",
-      },
-      
-      // Gender plan options (same college, specific gender)
-      {
-        type: "same_college_male",
-        label: "Same College - Male",
-        description: `Match with males from ${college}`,
-        icon: "👨‍🎓",
-        requiresPlan: "gender",
-      },
-      {
-        type: "same_college_female",
-        label: "Same College - Female", 
-        description: `Match with females from ${college}`,
-        icon: "👩‍🎓",
-        requiresPlan: "gender",
-      },
-      
-      // Inter-college plan options
-      {
-        type: "any_college_any",
-        label: "Any College",
-        description: "Match with anyone from any college",
-        icon: "🌍",
-        requiresPlan: "intercollege",
-      },
-      {
-        type: "any_college_male",
-        label: "Any College - Male",
-        description: "Match with males from any college", 
-        icon: "🌍👨‍🎓",
-        requiresPlan: "intercollege",
-      },
-      {
-        type: "any_college_female",
-        label: "Any College - Female",
-        description: "Match with females from any college",
-        icon: "🌍👩‍🎓", 
-        requiresPlan: "intercollege",
-      },
-    ];
-
-    // Mark options as disabled if user doesn't have the required plan
-    return allOptions.map(option => {
-      const hasAccess = 
-        option.requiresPlan === "free" || 
-        (option.requiresPlan === "gender" && (userPlanType === "gender" || userPlanType === "intercollege")) ||
-        (option.requiresPlan === "intercollege" && userPlanType === "intercollege");
-
-      if (!hasAccess) {
-        const planNames = {
-          gender: "Gender Plan",
-          intercollege: "Inter-College Plan"
-        };
-        
-        return {
-          ...option,
-          disabled: true,
-          unlockMessage: `Unlock with ${planNames[option.requiresPlan as keyof typeof planNames]}`
-        };
-      }
-      
-      return option;
-    });
-  }, [userPlan]);
 
   // Detect mobile/tablet
   useEffect(() => {
@@ -177,6 +98,14 @@ export default function VideoPageClient() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Toast auto-hide
+  useEffect(() => {
+    if (showToast) {
+      const timer = setTimeout(() => setShowToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showToast]);
+
   // Fetch user plan after session ready
   useEffect(() => {
     if (status === "loading") return;
@@ -190,7 +119,6 @@ export default function VideoPageClient() {
     if (session?.user?.email) {
       fetchUserPlan();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, status]);
 
   const fetchUserPlan = async () => {
@@ -202,10 +130,14 @@ export default function VideoPageClient() {
       const planData: UserPlan = await res.json();
       setUserPlan(planData);
 
-      // Auto-select the first available (non-disabled) option
-      const availableOptions = matchingOptions.filter(opt => !opt.disabled);
-      if (availableOptions.length > 0) {
-        setSelectedMatchingOption(availableOptions[0].type);
+      // Generate matching options based on plan
+      const matchingOptions = generateMatchingOptions(planData);
+      setUserPlan({ ...planData, matchingOptions });
+
+      // Auto-select the first enabled option
+      const firstEnabled = matchingOptions.find(opt => !opt.disabled);
+      if (firstEnabled) {
+        setSelectedMatchingOption(firstEnabled.type);
       }
 
       setStatusMessage("Ready to start! Choose your matching preference.");
@@ -217,21 +149,113 @@ export default function VideoPageClient() {
     }
   };
 
-  // Update selected option when matching options change
-  useEffect(() => {
-    if (matchingOptions.length > 0 && !selectedMatchingOption) {
-      const availableOptions = matchingOptions.filter(opt => !opt.disabled);
-      if (availableOptions.length > 0) {
-        setSelectedMatchingOption(availableOptions[0].type);
-      }
+  // Generate matching options based on user's plan
+  const generateMatchingOptions = (planData: UserPlan): MatchingOption[] => {
+    const { planType, hasActivePlan } = planData.user;
+    const activePlan = hasActivePlan ? planType : "free";
+
+    const options: MatchingOption[] = [
+      {
+        type: "same_any",
+        label: "Same College (Anyone)",
+        description: "Match with anyone from your college",
+        icon: "🏫",
+        disabled: false,
+      },
+    ];
+
+    // Inter-college options
+    const interCollegeOption: MatchingOption = {
+      type: "inter_any",
+      label: "Inter College (Anyone)",
+      description: "Match with anyone from any college",
+      icon: "🌍",
+      disabled: activePlan === "free",
+      disabledReason: activePlan === "free" ? "Upgrade to Inter-College or Gender plan" : undefined,
+    };
+    options.push(interCollegeOption);
+
+    // Gender-specific options (only for gender plan)
+    if (activePlan === "gender") {
+      options.push(
+        {
+          type: "same_male",
+          label: "Same College (Males)",
+          description: "Match with males from your college",
+          icon: "🏫👨",
+          requiresGender: true,
+        },
+        {
+          type: "same_female",
+          label: "Same College (Females)",
+          description: "Match with females from your college",
+          icon: "🏫👩",
+          requiresGender: true,
+        },
+        {
+          type: "inter_male",
+          label: "Inter College (Males)",
+          description: "Match with males from any college",
+          icon: "🌍👨",
+          requiresGender: true,
+        },
+        {
+          type: "inter_female",
+          label: "Inter College (Females)",
+          description: "Match with females from any college",
+          icon: "🌍👩",
+          requiresGender: true,
+        }
+      );
+    } else {
+      // Show disabled gender options for other plans
+      options.push(
+        {
+          type: "same_male",
+          label: "Same College (Males)",
+          description: "Match with males from your college",
+          icon: "🏫👨",
+          disabled: true,
+          disabledReason: "Upgrade to Gender plan",
+          requiresGender: true,
+        },
+        {
+          type: "same_female",
+          label: "Same College (Females)",
+          description: "Match with females from your college",
+          icon: "🏫👩",
+          disabled: true,
+          disabledReason: "Upgrade to Gender plan",
+          requiresGender: true,
+        },
+        {
+          type: "inter_male",
+          label: "Inter College (Males)",
+          description: "Match with males from any college",
+          icon: "🌍👨",
+          disabled: true,
+          disabledReason: "Upgrade to Gender plan",
+          requiresGender: true,
+        },
+        {
+          type: "inter_female",
+          label: "Inter College (Females)",
+          description: "Match with females from any college",
+          icon: "🌍👩",
+          disabled: true,
+          disabledReason: "Upgrade to Gender plan",
+          requiresGender: true,
+        }
+      );
     }
-  }, [matchingOptions, selectedMatchingOption]);
+
+    return options;
+  };
 
   // Camera lifecycle
   useEffect(() => {
     if (showVideo) initializeCamera();
     else stopCamera();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showVideo]);
 
   const initializeCamera = async () => {
@@ -264,7 +288,7 @@ export default function VideoPageClient() {
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
   };
 
-  // Socket setup (connect once we have plan + email)
+  // Socket setup
   useEffect(() => {
     if (!userPlan || !session?.user?.email) return;
 
@@ -273,7 +297,6 @@ export default function VideoPageClient() {
 
     socket.on("connect", () => {
       setStatusMessage("Connected. Choose preference and click 'Start'...");
-      // Ensure we register as soon as socket is ready
       if (!hasEmittedRegister) {
         socket.emit("registerUser", { email: session.user!.email! });
         setHasEmittedRegister(true);
@@ -283,11 +306,13 @@ export default function VideoPageClient() {
     socket.on("registrationSuccess", () => {
       setIsRegistered(true);
       setStatusMessage("Ready to start! Choose your matching preference.");
-      // If user already clicked start before registration finished, run it now
       if (pendingStart && selectedMatchingOption) {
+        const genderFilter = selectedMatchingOption.includes("_male") ? "male" :
+                           selectedMatchingOption.includes("_female") ? "female" : "any";
         socket.emit("findPartner", {
           email: session.user!.email!,
           matchingPreference: selectedMatchingOption,
+          preferredGender: genderFilter !== "any" ? genderFilter : undefined,
         });
         setPendingStart(false);
         setStatusMessage("Looking for someone you can chat with...");
@@ -391,7 +416,6 @@ export default function VideoPageClient() {
       setHasEmittedRegister(false);
       setPendingStart(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userPlan, session, selectedMatchingOption, showVideo]);
 
   // WebRTC helpers
@@ -442,9 +466,30 @@ export default function VideoPageClient() {
     candidateBufferRef.current = [];
   }
 
-  // Start flow: If not registered yet, queue the start
+  // Handle option selection
+  function handleOptionSelect(optionType: string, option: MatchingOption) {
+    if (option.disabled) {
+      setShowToast({
+        message: option.disabledReason || "This feature is not available in your current plan",
+        type: "error"
+      });
+      return;
+    }
+    setSelectedMatchingOption(optionType);
+  }
+
+  // Start flow
   function handleStart() {
     if (!selectedMatchingOption || !session?.user?.email) return;
+
+    const selectedOption = userPlan?.matchingOptions.find(opt => opt.type === selectedMatchingOption);
+    if (selectedOption?.disabled) {
+      setShowToast({
+        message: selectedOption.disabledReason || "This feature is not available in your current plan",
+        type: "error"
+      });
+      return;
+    }
 
     const socket = socketRef.current;
     if (!socket || !socket.connected) {
@@ -454,7 +499,6 @@ export default function VideoPageClient() {
     }
 
     if (!isRegistered) {
-      // ensure we've sent register request at least once
       if (!hasEmittedRegister) {
         socket.emit("registerUser", { email: session.user.email });
         setHasEmittedRegister(true);
@@ -464,8 +508,14 @@ export default function VideoPageClient() {
       return;
     }
 
-    // registered → go
-    socket.emit("findPartner", { email: session.user.email, matchingPreference: selectedMatchingOption });
+    const genderFilter = selectedMatchingOption.includes("_male") ? "male" :
+                        selectedMatchingOption.includes("_female") ? "female" : "any";
+
+    socket.emit("findPartner", { 
+      email: session.user.email, 
+      matchingPreference: selectedMatchingOption,
+      preferredGender: genderFilter !== "any" ? genderFilter : undefined,
+    });
     setStatusMessage("Looking for someone you can chat with...");
   }
 
@@ -507,22 +557,34 @@ export default function VideoPageClient() {
 
   // Loading & unauthenticated
   if (loading || status === "loading") {
-    return (
-      <div style={centeredPage}>Loading...</div>
-    );
+    return <div style={centeredPage}>Loading...</div>;
   }
   if (status === "unauthenticated") {
-    return (
-      <div style={centeredPage}>Please sign in to use the chat</div>
-    );
+    return <div style={centeredPage}>Please sign in to use the chat</div>;
   }
 
-  // Styles (unchanged aside from reuse)
+  // Styles
   const containerStyle: React.CSSProperties = {
     minHeight: "100vh",
     background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     fontFamily: "Arial, sans-serif",
+    position: "relative",
   };
+
+  const toastStyle: React.CSSProperties = {
+    position: "fixed",
+    top: "20px",
+    right: "20px",
+    padding: "12px 20px",
+    borderRadius: "8px",
+    color: "white",
+    fontWeight: "500",
+    zIndex: 1000,
+    maxWidth: "300px",
+    background: showToast?.type === "error" ? "#ef4444" : "#3b82f6",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  };
+
   const mainContainerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: isMobile ? "column" : "row",
@@ -532,6 +594,7 @@ export default function VideoPageClient() {
     padding: isMobile ? "10px" : "20px",
     gap: isMobile ? "15px" : "20px",
   };
+
   const videoSectionStyle: React.CSSProperties = {
     flex: isMobile ? "none" : "0 0 400px",
     background: "#fff",
@@ -540,12 +603,15 @@ export default function VideoPageClient() {
     boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
     display: showVideo ? "block" : "none",
   };
+
   const videoContainerStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: isMobile ? "row" : "column",
     gap: "15px",
   };
+
   const videoWrapperStyle: React.CSSProperties = { flex: isMobile ? "1" : "none" };
+
   const videoStyle: React.CSSProperties = {
     width: "100%",
     height: isMobile ? "150px" : "200px",
@@ -553,6 +619,7 @@ export default function VideoPageClient() {
     borderRadius: "10px",
     objectFit: "cover",
   };
+
   const chatSectionStyle: React.CSSProperties = {
     flex: 1,
     background: "#fff",
@@ -563,12 +630,14 @@ export default function VideoPageClient() {
     flexDirection: "column",
     minHeight: isMobile ? "400px" : "auto",
   };
+
   const controlsSectionStyle: React.CSSProperties = {
-    flex: isMobile ? "none" : "0 0 280px",
+    flex: isMobile ? "none" : "0 0 320px",
     display: "flex",
     flexDirection: isMobile ? "row" : "column",
     gap: "15px",
   };
+
   const controlsCardStyle: React.CSSProperties = {
     background: "#fff",
     borderRadius: "15px",
@@ -579,6 +648,13 @@ export default function VideoPageClient() {
 
   return (
     <div style={containerStyle}>
+      {/* Toast */}
+      {showToast && (
+        <div style={toastStyle}>
+          {showToast.message}
+        </div>
+      )}
+
       <div style={mainContainerStyle}>
         {/* Video Section */}
         {showVideo && (
@@ -729,52 +805,109 @@ export default function VideoPageClient() {
           {/* Matching Options */}
           {userPlan && (
             <div style={controlsCardStyle}>
-              <h4 style={{ margin: "0 0 10px", fontSize: isMobile ? "12px" : "14px", color: "#374151" }}>
+              <h4 style={{ margin: "0 0 15px", fontSize: isMobile ? "12px" : "14px", color: "#374151" }}>
                 Matching Preferences
               </h4>
 
-              {matchingOptions.map((option) => (
-                <label
-                  key={option.type}
-                  style={{
-                    display: "block",
-                    padding: "8px",
-                    margin: "5px 0",
-                    border: `1px solid ${option.disabled ? "#f3f4f6" : "#e5e7eb"}`,
-                    borderRadius: "8px",
-                    cursor: option.disabled ? "not-allowed" : "pointer",
-                    fontSize: "12px",
-                    background: option.disabled 
-                      ? "#f8f9fa" 
-                      : selectedMatchingOption === option.type 
-                        ? "#e0e7ff" 
-                        : "white",
-                    opacity: option.disabled ? 0.6 : 1,
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="matchingOption"
-                    value={option.type}
-                    checked={selectedMatchingOption === option.type}
-                    onChange={(e) => !option.disabled && setSelectedMatchingOption(e.target.value)}
-                    disabled={option.disabled}
-                    style={{ marginRight: "8px" }}
-                  />
-                  <span style={{ fontWeight: "500" }}>
-                    {option.icon} {option.label}
-                  </span>
-                  <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "2px" }}>
-                    {option.disabled ? (
-                      <span style={{ color: "#ef4444", fontWeight: "500" }}>
-                        🔒 {option.unlockMessage}
-                      </span>
-                    ) : (
-                      option.description
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {userPlan.matchingOptions.map((option) => (
+                  <label
+                    key={option.type}
+                    style={{
+                      display: "block",
+                      padding: "10px 12px",
+                      margin: "0",
+                      border: option.disabled 
+                        ? "1px solid #d1d5db" 
+                        : selectedMatchingOption === option.type 
+                          ? "2px solid #3b82f6" 
+                          : "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                      cursor: option.disabled ? "not-allowed" : "pointer",
+                      fontSize: "12px",
+                      background: option.disabled 
+                        ? "#f9fafb" 
+                        : selectedMatchingOption === option.type 
+                          ? "#eff6ff" 
+                          : "white",
+                      opacity: option.disabled ? 0.6 : 1,
+                      position: "relative",
+                    }}
+                    onClick={() => handleOptionSelect(option.type, option)}
+                  >
+                    <input
+                      type="radio"
+                      name="matchingOption"
+                      value={option.type}
+                      checked={selectedMatchingOption === option.type}
+                      disabled={option.disabled}
+                      onChange={() => {}} // Handled by label onClick
+                      style={{ 
+                        marginRight: "8px",
+                        cursor: option.disabled ? "not-allowed" : "pointer",
+                      }}
+                    />
+                    <span style={{ fontWeight: "500", color: option.disabled ? "#9ca3af" : "#374151" }}>
+                      {option.icon} {option.label}
+                    </span>
+                    
+                    {option.disabled && (
+                      <div style={{ 
+                        fontSize: "10px", 
+                        color: "#ef4444", 
+                        marginTop: "4px",
+                        fontWeight: "500"
+                      }}>
+                        🔒 {option.disabledReason}
+                      </div>
                     )}
-                  </div>
-                </label>
-              ))}
+                    
+                    <div style={{ 
+                      fontSize: "10px", 
+                      color: option.disabled ? "#9ca3af" : "#6b7280", 
+                      marginTop: "2px" 
+                    }}>
+                      {option.description}
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {/* Plan Feature Summary */}
+              <div style={{ 
+                marginTop: "15px", 
+                padding: "10px", 
+                background: "#f8fafc", 
+                borderRadius: "6px",
+                border: "1px solid #e2e8f0" 
+              }}>
+                <div style={{ fontSize: "11px", color: "#475569", fontWeight: "500", marginBottom: "5px" }}>
+                  Your Plan Features:
+                </div>
+                <div style={{ fontSize: "10px", color: "#64748b", lineHeight: "1.4" }}>
+                  {userPlan.user.planType === "free" && (
+                    <>
+                      ✅ Same college matching<br/>
+                      ❌ Inter-college matching<br/>
+                      ❌ Gender filtering
+                    </>
+                  )}
+                  {userPlan.user.planType === "intercollege" && userPlan.user.hasActivePlan && (
+                    <>
+                      ✅ Same college matching<br/>
+                      ✅ Inter-college matching<br/>
+                      ❌ Gender filtering
+                    </>
+                  )}
+                  {userPlan.user.planType === "gender" && userPlan.user.hasActivePlan && (
+                    <>
+                      ✅ Same college matching<br/>
+                      ✅ Inter-college matching<br/>
+                      ✅ Gender filtering (Premium!)
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -883,8 +1016,25 @@ export default function VideoPageClient() {
                 >
                   <p style={{ margin: "0", color: "#0369a1", fontSize: "11px" }}>
                     🎉 You have {userPlan.planStatus.planName}!
-                    {userPlan.user.planType === "gender" && " Filter by gender in your college."}
-                    {userPlan.user.planType === "intercollege" && " Match with any college & filter by gender!"}
+                    {userPlan.user.planType === "gender" && " Filter by gender in your college and inter-college!"}
+                    {userPlan.user.planType === "intercollege" && " Match with any college!"}
+                  </p>
+                </div>
+              )}
+
+              {/* Upgrade suggestions for free users */}
+              {(!userPlan?.user.hasActivePlan || userPlan.user.planType === "free") && (
+                <div
+                  style={{
+                    marginTop: "10px",
+                    padding: "8px",
+                    background: "#fef3c7",
+                    borderRadius: "6px",
+                    border: "1px solid #fbbf24",
+                  }}
+                >
+                  <p style={{ margin: "0", color: "#92400e", fontSize: "11px" }}>
+                    💎 Want more options? Upgrade to unlock inter-college matching and gender filtering!
                   </p>
                 </div>
               )}
@@ -896,7 +1046,7 @@ export default function VideoPageClient() {
   );
 }
 
-/* Small shared style */
+/* Shared styles */
 const centeredPage: React.CSSProperties = {
   minHeight: "100vh",
   display: "flex",
