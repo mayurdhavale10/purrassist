@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     // 2. Verify webhook signature (Updated method)
     const signedPayload = `${timestamp}${rawBody}`;
     const computedSignature = crypto
-      .createHmac("sha256", process.env.CASHFREE_SECRET_KEY!)
+      .createHmac("sha256", process.env.CASHFREE_WEBHOOK_SECRET!)
       .update(signedPayload)
       .digest("base64");
 
