@@ -148,7 +148,7 @@ function CheckoutInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId,
-          customerEmail: "user@example.com", // make dynamic if you want
+          customerEmail: "sidnagaych4321@gmail.com", // make dynamic if you want
           customerPhone: "9999999999", // make dynamic if you want
         }),
       });
