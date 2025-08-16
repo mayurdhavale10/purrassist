@@ -42,7 +42,7 @@ type UserPlan = {
 
 const SOCKET_URL = "https://3d0a9a98866f.ngrok-free.app";
 
-// Keep TURN/STUN as you had
+// Keep TURN/STUN as you hadd
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "turn:196.240.60.200:3478", username: "freeuser", credential: "freepassword" },
