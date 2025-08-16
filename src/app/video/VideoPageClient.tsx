@@ -45,7 +45,7 @@ const SOCKET_URL = "https://3d0a9a98866f.ngrok-free.app";
 // Keep TURN/STUN as you hadd
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
-  { urls: "turn:196.240.60.203:3478", username: "freeuser", credential: "freepassword" },
+  { urls: "turn:196.240.60.202:3478", username: "freeuser", credential: "freepassword" },
   { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
 ];
 
