@@ -1,16 +1,26 @@
 "use client";
 
-import { Suspense, useState } from "react";
+/**
+ * 
+ * - Added `phone` state + input so user enters phone (no more hard-coded number)
+ * - Pulled email from NextAuth session (`useSession`) and send it to backend
+ * - Light validation for phone number before calling /api/payment/create-order
+ * - Kept Suspense wrapper to fix CSR bailout build error
+ * - Preserved your CDN+NPM Cashfree SDK loading fallback and all UI/UX
+ */
+
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 
-// Try to import the npm package instead of dynamic loading
+// ----- Cashfree SDK dynamic import (npm first, CDN fallback) -----
 let loadCashfree: any = null;
 try {
-  const cashfreeModule = require("@cashfreepayments/cashfree-js");
-  loadCashfree = cashfreeModule.load;
+  // Try the official npm package first
+  const cf = require("@cashfreepayments/cashfree-js");
+  loadCashfree = cf.load;
 } catch {
-  console.log("Cashfree npm package not available, will try CDN fallback");
+  console.log("[Payment] Cashfree npm package not available, will try CDN fallback");
 }
 
 declare global {
@@ -19,13 +29,14 @@ declare global {
   }
 }
 
+// ----- Plan metadata (unchanged) -----
 const PLANS = {
   free: { name: "Basic Free", price: 0 },
   basic: { name: "Basic All-Colleges", price: 69 },
   premium: { name: "Premium Ultimate", price: 169 },
 };
 
-// ---- Page wrapper: keeps build happy (Suspense around CSR bailout) ----
+// ===== Page wrapper fixes Next.js build warning by wrapping CSR hooks in Suspense =====
 export default function CheckoutPage() {
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center p-6">Loading checkout…</div>}>
@@ -34,167 +45,178 @@ export default function CheckoutPage() {
   );
 }
 
-// ---- Your original client logic moved here unchanged ----
+// ===== Actual client page logic moved here =====
 function CheckoutInner() {
   const params = useSearchParams();
   const planId = params.get("plan") as keyof typeof PLANS;
   const plan = PLANS[planId];
+
+  const session = useSession();      // ← pulls logged-in user (email, etc.)
+
+  // ---- UI state ----
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  const session = useSession();
 
+  // NEW: phone state from user input (instead of hard-coded)
+  const [phone, setPhone] = useState("");
+
+  // (Optional) Pre-fill phone if you later store it in DB and fetch it here
+  useEffect(() => {
+    // placeholder for future autofill logic if you store phone in User model
+  }, []);
+
+  // ---- Cashfree loader (npm first, then CDN) ----
   const loadCashfreeSDK = async (): Promise<any> => {
-    // Try npm package first
+    // 1) Try npm package
     if (loadCashfree) {
       try {
-        console.log("[Payment] Loading Cashfree via npm package...");
+        console.log("[Payment] Loading Cashfree via npm package…");
+        // Use env or hardcode sandbox while testing
         const cashfree = await loadCashfree({
-        //   mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === "production" ? "production" : "sandbox",
-        mode: "sandbox",
+          // mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === "production" ? "production" : "sandbox",
+          mode: "sandbox",
         });
         console.log("[Payment] Cashfree loaded via npm package");
         return cashfree;
-      } catch (error) {
-        console.error("[Payment] Failed to load via npm package:", error);
-        // Fall through to CDN method
+      } catch (err) {
+        console.error("[Payment] NPM load failed, falling back to CDN:", err);
       }
     }
 
-    // Fallback to CDN method
+    // 2) Fallback to CDN
     return new Promise<any>((resolve, reject) => {
       if (typeof window !== "undefined" && window.Cashfree) {
-        console.log("[Payment] Cashfree SDK already loaded via CDN");
+        console.log("[Payment] Cashfree SDK already available on window");
         resolve(new window.Cashfree());
         return;
       }
 
-      console.log("[Payment] Loading Cashfree SDK via CDN...");
-
-      const script = document.createElement("script");
       const cdnUrls = [
         "https://sdk.cashfree.com/js/ui/2.0.0/checkout.js",
         "https://sdk.cashfree.com/js/ui/2.0.1/checkout.js",
         "https://sdk.cashfree.com/js/v3/cashfree.js",
       ];
+      let idx = 0;
 
-      let currentUrlIndex = 0;
-
-      const tryLoadScript = () => {
-        if (currentUrlIndex >= cdnUrls.length) {
-          reject(new Error("Failed to load payment system from all CDN sources"));
+      const tryUrl = () => {
+        if (idx >= cdnUrls.length) {
+          reject(new Error("Failed to load Cashfree SDK from all CDN sources"));
           return;
         }
 
-        script.src = cdnUrls[currentUrlIndex];
-        console.log(`[Payment] Trying CDN URL: ${script.src}`);
-
+        const src = cdnUrls[idx++];
+        console.log(`[Payment] Loading Cashfree CDN: ${src}`);
+        const script = document.createElement("script");
         const timeout = setTimeout(() => {
-          console.error(`[Payment] SDK load timeout for URL: ${script.src}`);
-          if (document.body.contains(script)) document.body.removeChild(script);
-          currentUrlIndex++;
-          tryLoadScript();
+          console.error(`[Payment] Cashfree CDN timeout: ${src}`);
+          cleanup();
+          tryUrl();
         }, 8000);
+
+        const cleanup = () => {
+          clearTimeout(timeout);
+          if (document.body.contains(script)) document.body.removeChild(script);
+        };
 
         script.onload = () => {
           clearTimeout(timeout);
-          console.log("[Payment] SDK script loaded, checking Cashfree object...");
           setTimeout(() => {
-            if (typeof window !== "undefined" && window.Cashfree) {
+            if (window.Cashfree) {
               console.log("[Payment] Cashfree SDK ready via CDN");
+              cleanup(); // script can be removed; object is on window
               resolve(new window.Cashfree());
             } else {
-              console.error("[Payment] Cashfree object not available after script load");
-              if (document.body.contains(script)) document.body.removeChild(script);
-              currentUrlIndex++;
-              tryLoadScript();
+              console.error("[Payment] window.Cashfree missing after load, trying next CDN");
+              cleanup();
+              tryUrl();
             }
-          }, 300);
+          }, 250);
         };
 
-        script.onerror = (error) => {
-          clearTimeout(timeout);
-          console.error(`[Payment] SDK script failed to load from ${script.src}:`, error);
-          if (document.body.contains(script)) document.body.removeChild(script);
-          currentUrlIndex++;
-          tryLoadScript();
+        script.onerror = (e) => {
+          console.error("[Payment] Cashfree CDN error:", e);
+          cleanup();
+          tryUrl();
         };
 
         script.async = true;
+        script.src = src;
         document.body.appendChild(script);
       };
 
-      tryLoadScript();
+      tryUrl();
     });
   };
 
+  // ---- Simple phone validation (10+ digits) ----
+  const isValidPhone = (value: string) => {
+    const digits = value.replace(/\D/g, "");
+    return digits.length >= 10;
+  };
+
+  // ---- Payment click handler ----
   const handlePayment = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      console.log("[Payment] Starting payment process for plan:", planId);
-
-      let cashfree;
-      try {
-        cashfree = await loadCashfreeSDK();
-        console.log("[Payment] SDK loaded successfully");
-      } catch (sdkError) {
-        console.error("[Payment] SDK load error:", sdkError);
-        throw new Error("Failed to load payment processor. Please try again.");
+      // Validate phone before hitting server
+      if (!isValidPhone(phone)) {
+        setError("Please enter a valid phone number (10+ digits).");
+        setLoading(false);
+        return;
       }
 
-      console.log("[Payment] Creating payment session...");
-      const email = session?.data?.user?.email;
+      // Load Cashfree SDK
+      const cashfree = await loadCashfreeSDK();
+
+      // Use email from session (backend/webhook will rely on this to update the correct user)
+      const email = session.data?.user?.email;  
+
+      // Create order on your API
       const res = await fetch("/api/payment/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           planId,
-          customerEmail: email, // make dynamic if you want
-          customerPhone: "9999999999", // make dynamic if you want
+          customerEmail: email,   // ← dynamic from session
+          customerPhone: phone,   // ← dynamic from input
         }),
       });
 
       const data = await res.json();
-      console.log("[Payment] API response:", data);
+      console.log("[Payment] /create-order response:", data);
 
-      if (!res.ok) {
-        console.error("[Payment] API error:", data);
-        throw new Error(data.error || `Payment initialization failed (${res.status})`);
+      if (!res.ok || !data?.paymentSessionId) {
+        throw new Error(data?.error || "Failed to initialize payment session");
       }
 
-      if (!data.paymentSessionId) {
-        console.error("[Payment] No payment session ID in response");
-        throw new Error("Invalid payment session - please try again");
-      }
-
-      console.log("[Payment] Initializing Cashfree checkout with session ID:", data.paymentSessionId);
-
-      if (cashfree && cashfree.checkout) {
+      // Kick off Cashfree checkout
+      if (cashfree?.checkout) {
         await cashfree.checkout({
           paymentSessionId: data.paymentSessionId,
           redirectTarget: "_self",
         });
-      } else if (cashfree && cashfree.redirect) {
+      } else if (cashfree?.redirect) {
         await cashfree.redirect({
           paymentSessionId: data.paymentSessionId,
           returnUrl: `${window.location.origin}/payment/return`,
         });
       } else {
-        throw new Error("Payment processor method not available");
+        throw new Error("Cashfree checkout method not available");
       }
     } catch (err) {
       console.error("Payment error:", err);
-      const errorMessage = err instanceof Error ? err.message : "Payment failed - please try again";
-      setError(errorMessage);
-      setRetryCount((prev) => prev + 1);
+      const msg = err instanceof Error ? err.message : "Payment failed - please try again";
+      setError(msg);
+      setRetryCount((c) => c + 1);
     } finally {
       setLoading(false);
     }
   };
 
-  // Free plan fast-path UI
+  // ===== Free plan fast path (unchanged) =====
   if (plan && plan.price === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: "#d2e8fe" }}>
@@ -230,17 +252,14 @@ function CheckoutInner() {
     );
   }
 
-  // Invalid plan UI
+  // ===== Invalid plan guard =====
   if (!plan) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="bg-white p-6 rounded-lg shadow-lg text-center">
           <h2 className="text-xl font-bold text-red-600">Invalid Plan</h2>
           <p className="mt-2 mb-4">The selected plan does not exist.</p>
-          <button
-            onClick={() => (window.location.href = "/")}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
+          <button onClick={() => (window.location.href = "/")} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
             Go Back
           </button>
         </div>
@@ -248,10 +267,10 @@ function CheckoutInner() {
     );
   }
 
-  // Paid plan UI
+  // ===== Paid plan UI (with phone field) =====
   return (
     <div className="min-h-screen relative flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#f0f7ff] via-white to-[#f6fff6]">
-      {/* soft gradient blob */}
+      {/* Soft gradient background blobs */}
       <div className="pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black,transparent_70%)]">
         <div className="absolute -top-20 -left-16 w-80 h-80 rounded-full bg-emerald-200/40 blur-3xl" />
         <div className="absolute -bottom-16 -right-10 w-72 h-72 rounded-full bg-sky-200/40 blur-3xl" />
@@ -266,6 +285,7 @@ function CheckoutInner() {
 
           <h1 className="text-2xl font-bold text-slate-900 mt-2">Complete Payment</h1>
 
+          {/* Plan & Amount summary */}
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex justify-between text-sm text-slate-700">
               <span>Plan</span>
@@ -277,6 +297,21 @@ function CheckoutInner() {
             </div>
           </div>
 
+          {/* NEW: Phone input (sent to backend & Cashfree) */}
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-slate-700">Phone number</label>
+            <input
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="e.g., 9876543210"
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:ring-emerald-500 focus:border-emerald-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">Used for payment confirmation & receipts.</p>
+          </div>
+
           {error && (
             <div className="mt-4 bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl">
               <div className="text-sm font-medium">{error}</div>
@@ -285,9 +320,7 @@ function CheckoutInner() {
                   Try again
                 </button>
               ) : (
-                <p className="mt-2 text-xs">
-                  Still stuck? Please retry in a moment or contact support.
-                </p>
+                <p className="mt-2 text-xs">Still stuck? Please retry in a moment or contact support.</p>
               )}
             </div>
           )}
@@ -296,26 +329,14 @@ function CheckoutInner() {
             onClick={handlePayment}
             disabled={loading}
             className={`mt-5 w-full inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-white font-semibold shadow-lg transition-all ${
-              loading
-                ? "bg-emerald-400 cursor-not-allowed"
-                : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95"
+              loading ? "bg-emerald-400 cursor-not-allowed" : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95"
             }`}
           >
             {loading ? (
               <>
-                <svg
-                  className="animate-spin h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                >
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"></circle>
-                  <path
-                    className="opacity-75"
-                    d="M4 12a8 8 0 018-8"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                  />
+                  <path className="opacity-75" d="M4 12a8 8 0 018-8" strokeWidth="4" strokeLinecap="round" />
                 </svg>
                 Processing…
               </>
@@ -324,6 +345,7 @@ function CheckoutInner() {
             )}
           </button>
 
+          {/* Trust row (no emojis) */}
           <div className="mt-6">
             <div className="flex items-center justify-center text-[11px] text-slate-500">
               <span>SSL Encrypted</span>

@@ -5,9 +5,13 @@ import clientPromise from "@/lib/clientPromise";
 
 export async function GET() {
   try {
+    // Keep the full object, like Option 1 style
     const session = await auth();
-    const email = session?.user?.email;
-    if (!email) return NextResponse.json({ planType: null }, { status: 200 });
+    const email = session?.user?.email; // access via session.user, not destructured
+
+    if (!email) {
+      return NextResponse.json({ planType: null }, { status: 200 });
+    }
 
     const db = (await clientPromise).db();
     const user = await db.collection("users").findOne(
@@ -15,9 +19,15 @@ export async function GET() {
       { projection: { planType: 1 } }
     );
 
-    return NextResponse.json({ planType: user?.planType ?? null }, { status: 200 });
+    return NextResponse.json(
+      { planType: user?.planType ?? null },
+      { status: 200 }
+    );
   } catch (e) {
     console.error("GET /api/user/plan error:", e);
-    return NextResponse.json({ planType: null, error: "Internal error" }, { status: 500 });
+    return NextResponse.json(
+      { planType: null, error: "Internal error" },
+      { status: 500 }
+    );
   }
 }
