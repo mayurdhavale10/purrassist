@@ -57,62 +57,29 @@ const authConfig: NextAuthConfig = {
       return !!email && isCollegeDomain(domain);
     },
 
-// In auth.config.ts (jwt callback)
-async jwt({ token, user, trigger }) {
-  // 1. Carry over user data to token (original logic)
-  if (user) {
-    (token as any).id = (user as any).id;
-    (token as any).email = (user as any).email;
-    (token as any).gender = (user as any).gender ?? null;
-  }
+    async jwt({ token, user, trigger }) {
+      if (user) {
+        // carry to token
+        // token is Record<string, unknown> so these are fine
+        (token as any).id = (user as any).id;
+        (token as any).email = (user as any).email;
+        (token as any).gender = (user as any).gender ?? null;
+      }
 
-  // 2. NEW: Auto-create user with free plan on first sign-in
-  if (user) {
-    try {
-      const client = await clientPromise;
-      const db = client.db();
-      const users = db.collection("users");
-
-      await users.updateOne(
-        { email: (user as any).email },
-        {
-          $setOnInsert: { // Only runs for NEW users
-            email: (user as any).email,
-            emailDomain: (user as any).email.split("@")[1],
-            name: (user as any).name,
-            image: (user as any).image,
-            gender: null,
-            preferredGender: null,
-            planType: "free", // Force free plan
-            planExpiry: null,
-            createdAt: new Date(),
-          },
-          $set: { // Updates on every login
-            updatedAt: new Date(),
-          },
-        },
-        { upsert: true }
-      );
-    } catch (e) {
-      console.error("JWT callback DB error (user upsert):", e);
-    }
-  }
-
-  // 3. ORIGINAL LOGIC: Handle gender updates (unchanged)
-  if (trigger === "update" || (token as any).gender == null) {
-    try {
-      const client = await clientPromise;
-      const db = client.db();
-      const users = db.collection("users");
-      const dbUser = await users.findOne({ email: (token as any).email });
-      if (dbUser) (token as any).gender = dbUser.gender ?? null;
-    } catch (e) {
-      console.error("JWT callback DB error (gender fetch):", e);
-    }
-  }
-
-  return token;
-},
+      // refresh gender from your DB if needed
+      if (trigger === "update" || (token as any).gender == null) {
+        try {
+          const client = await clientPromise;
+          const db = client.db();
+          const users = db.collection("users");
+          const dbUser = await users.findOne({ email: (token as any).email });
+          if (dbUser) (token as any).gender = dbUser.gender ?? null;
+        } catch (e) {
+          console.error("JWT callback DB error:", e);
+        }
+      }
+      return token;
+    },
 
     async session({ session, token }) {
       if (session.user) {
