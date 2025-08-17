@@ -32,9 +32,7 @@ export default function Footer() {
               <p className="text-[#475569] text-sm mb-1">
                 <span className="font-medium">Business Enquiry:</span>
               </p>
-              <p className="text-[#475569] text-sm">
-                +91 93726 52742 | +91 75248 64876
-              </p>
+
             </div>
 
             <div className="flex gap-4">
