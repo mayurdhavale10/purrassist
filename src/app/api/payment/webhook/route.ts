@@ -1,163 +1,129 @@
+// /app/api/payment/webhook/route.ts
 import { NextResponse } from "next/server";
-import { mongooseConnect } from "@/lib/dbConnect";
-import User from "@/models/User";
 import crypto from "crypto";
+import { mongooseConnect } from "@/lib/dbConnect";
+import ProductOrder from "@/models/ProductOrder";
+import User from "@/models/User";
 
-const PLANS = {
-  free: { price: 0, planType: "free" },
-  basic: { price: 69, planType: "intercollege" },
-  premium: { price: 169, planType: "gender" },
-} as const;
+// Cashfree sends headers: x-webhook-timestamp & x-webhook-signature (HMAC-SHA256 base64 over `${timestamp}${rawBody}`)
+// Keep this handler in App Router (route.ts) so we can read the *raw* body via req.text().
+
+function verifySignature(rawBody: string, timestamp: string, signature: string) {
+  const secret = process.env.CASHFREE_SECRET_KEY;
+  if (!secret) return false;
+  const signedPayload = `${timestamp}${rawBody}`;
+  const computed = crypto.createHmac("sha256", secret).update(signedPayload).digest("base64");
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computed));
+}
 
 export async function POST(req: Request) {
-  console.log("Webhook received!");
-  
-  // Log headers for debugging
-  const headers = Object.fromEntries(req.headers.entries());
-  console.log("Webhook headers:", headers);
-
-  await mongooseConnect();
-
   try {
-    // 1. Get raw body and signature
+    await mongooseConnect();
+
+    const timestamp = req.headers.get("x-webhook-timestamp") || "";
+    const signature = req.headers.get("x-webhook-signature") || "";
+
     const rawBody = await req.text();
-    console.log("Webhook payload:", rawBody);
-    
-    const signature = req.headers.get("x-webhook-signature");
-    const timestamp = req.headers.get("x-webhook-timestamp");
 
-    if (!signature || !timestamp) {
-      console.error("Missing webhook headers:", { signature, timestamp });
-      return NextResponse.json(
-        { error: "Missing required headers" },
-        { status: 400 }
-      );
+    if (!timestamp || !signature || !rawBody) {
+      return NextResponse.json({ error: "Missing webhook headers or body" }, { status: 400 });
     }
 
-    // 2. Verify webhook signature (Updated method)
-    const signedPayload = `${timestamp}${rawBody}`;
-    const computedSignature = crypto
-      .createHmac("sha256",  process.env.CASHFREE_SECRET_KEY!)
-      .update(signedPayload)
-      .digest("base64");
-
-    console.log("Signature verification:", {
-      received: signature,
-      computed: computedSignature,
-      match: computedSignature === signature
-    });
-
-    if (computedSignature !== signature) {
-      console.error("Signature mismatch");
-      return NextResponse.json(
-        { error: "Invalid webhook signature" },
-        { status: 401 }
-      );
+    const valid = verifySignature(rawBody, timestamp, signature);
+    if (!valid) {
+      console.error("[Webhook] Signature mismatch");
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    // 3. Parse the payload
     const payload = JSON.parse(rawBody);
-    console.log("Parsed payload:", JSON.stringify(payload, null, 2));
-    
-    // Handle different payload structures
-    const data = payload.data || payload;
-    const paymentData = data.payment || data;
-    const orderData = data.order || data;
 
-    if (!paymentData || !orderData) {
-      console.error("Invalid payload structure:", { paymentData, orderData });
-      return NextResponse.json(
-        { error: "Invalid webhook payload" },
-        { status: 400 }
-      );
+    // Cashfree PG webhooks generally have `data` with `payment` and `order`
+    const data = payload?.data || payload;
+    const orderData = data?.order || data;
+    const paymentData = data?.payment || data;
+
+    const orderId: string | undefined = orderData?.order_id || orderData?.orderId;
+    const cfOrderId: string | undefined = orderData?.cf_order_id ? String(orderData.cf_order_id) : undefined;
+
+    const txId: string | undefined = paymentData?.cf_payment_id || paymentData?.payment_id || paymentData?.id;
+    const paymentStatus: string = paymentData?.payment_status || orderData?.order_status || payload?.type || "";
+
+    const paymentAmount: number | undefined = Number(paymentData?.payment_amount || orderData?.order_amount || 0) || undefined;
+    const paymentTime: Date | undefined = paymentData?.payment_time ? new Date(paymentData.payment_time) : new Date();
+    const paymentMethod: string | undefined = paymentData?.payment_method || paymentData?.payment_group || paymentData?.payment_mode;
+
+    if (!orderId) {
+      console.error("[Webhook] Missing order_id in payload", payload);
+      return NextResponse.json({ error: "order_id missing" }, { status: 400 });
     }
 
-    // 4. Check for duplicate processing
-    const transactionId = paymentData.cf_payment_id || paymentData.payment_id;
-    if (transactionId) {
-      const existingUser = await User.findOne({
-        "paymentDetails.transactionId": transactionId,
-      });
-      if (existingUser) {
-        console.log("Duplicate transaction detected:", transactionId);
-        return NextResponse.json({ success: true, duplicate: true });
-      }
-    }
+    // Idempotent update: only push paymentHistory if this txId not seen before
+    const isSuccess = String(paymentStatus).toUpperCase().includes("SUCCESS");
 
-    // 5. Process payment
-    if (paymentData.payment_status === "SUCCESS") {
-      const orderAmount = parseFloat(orderData.order_amount || orderData.amount);
-      const customerEmail = 
-        data.customer_details?.customer_email || 
-        orderData.customer_email ||
-        paymentData.customer_email;
-
-      if (!customerEmail) {
-        console.error("Customer email not found in payload");
-        return NextResponse.json(
-          { error: "Customer email not found" },
-          { status: 400 }
-        );
-      }
-
-      // Determine plan from amount
-      let planType: "free" | "intercollege" | "gender" = "free";
-      if (orderAmount === PLANS.basic.price) {
-        planType = "intercollege";
-      } else if (orderAmount === PLANS.premium.price) {
-        planType = "gender";
-      }
-
-      console.log("Updating user:", {
-        email: customerEmail,
-        planType,
-        amount: orderAmount,
-        transactionId
-      });
-
-      // Update user in database
-      const updateResult = await User.findOneAndUpdate(
-        { email: customerEmail },
-        {
-          planType,
-          planExpiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days expiry
-          paymentDetails: {
-            transactionId,
-            amount: orderAmount,
-            paymentDate: new Date(paymentData.payment_time || Date.now()),
-            paymentMethod: paymentData.payment_mode,
-          },
+    const order = await ProductOrder.findOneAndUpdate(
+      { orderId, ...(txId ? { "paymentHistory.transactionId": { $ne: txId } } : {}) },
+      {
+        $set: {
+          cfOrderId: cfOrderId || undefined,
+          status: isSuccess ? "PAID" : paymentStatus?.toUpperCase().includes("FAIL") ? "FAILED" : "ACTIVE",
+          paymentStatus: isSuccess ? "SUCCESS" : paymentStatus?.toUpperCase().includes("FAIL") ? "FAILED" : "PENDING",
         },
-        { 
-          upsert: false, // Don't create new user if not found
-          new: true // Return updated document
-        }
-      );
+        ...(txId && {
+          $push: {
+            paymentHistory: {
+              transactionId: txId,
+              amount: paymentAmount,
+              paymentTime: paymentTime,
+              paymentMethod: paymentMethod,
+              status: paymentStatus,
+            },
+          },
+        }),
+      },
+      { new: true }
+    );
 
-      if (updateResult) {
-        console.log("User updated successfully:", updateResult.email);
-      } else {
-        console.error("User not found for email:", customerEmail);
-        return NextResponse.json(
-          { error: "User not found" },
-          { status: 404 }
-        );
-      }
-    } else {
-      console.log("Payment not successful:", paymentData.payment_status);
+    if (!order) {
+      // Might be a duplicate webhook for same txId (filter blocked the update)
+      return NextResponse.json({ ok: true, note: "order not updated (duplicate or not found)" });
     }
 
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("Webhook error:", error);
-    return NextResponse.json(
-      { error: "Internal server error", message: error.message },
-      { status: 500 }
-    );
+    // If payment successful, update the User’s plan
+    if (isSuccess) {
+      const email = order.customerEmail; // You sent email in create-order
+      if (email) {
+        const now = Date.now();
+
+        // Map amount -> planType (keeps your usecase logic)
+        type PlanType = "free" | "intercollege" | "gender";
+        let planType: PlanType = "free";
+        if (order.amount === 69) planType = "intercollege";
+        if (order.amount === 169) planType = "gender";
+
+        await User.findOneAndUpdate(
+          { email },
+          {
+            planType,
+            planExpiry: new Date(now + 30 * 24 * 60 * 60 * 1000),
+            paymentDetails: {
+              transactionId: txId,
+              amount: order.amount,
+              paymentDate: paymentTime,
+              paymentMethod: paymentMethod,
+            },
+          },
+          { new: true }
+        );
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error("[Webhook] Error:", err);
+    return NextResponse.json({ error: "Internal server error", message: err?.message }, { status: 500 });
   }
 }
 
-// Add GET method for webhook verification during setup
-export async function GET(req: Request) {
+export async function GET() {
   return NextResponse.json({ message: "Webhook endpoint is active" });
 }

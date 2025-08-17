@@ -84,7 +84,7 @@ function CheckoutInner() {
         // Use env or hardcode sandbox while testing
         const cashfree = await loadCashfree({
           // mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === "production" ? "production" : "sandbox",
-          mode: "sandbox",
+          mode: "production",
         });
         console.log("[Payment] Cashfree loaded via npm package");
         return cashfree;
