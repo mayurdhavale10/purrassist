@@ -5,33 +5,22 @@ import clientPromise from "@/lib/clientPromise";
 
 /** public/webmail domains to block */
 const PUBLIC_DOMAINS = new Set([
-  "gmail.com",
-  "yahoo.com",
-  "hotmail.com",
-  "outlook.com",
-  "live.com",
-  "aol.com",
-  "proton.me",
-  "protonmail.com",
-  "icloud.com",
-  "mail.com",
-  "yandex.com",
-  "rediffmail.com",
+  "gmail.com","yahoo.com","hotmail.com","outlook.com",
+  "live.com","aol.com","proton.me","protonmail.com",
+  "icloud.com","mail.com","yandex.com","rediffmail.com"
 ]);
 
 /** extra allowed college domains via env (comma separated) */
-const EXTRA_COLLEGE_DOMAINS: string[] = (
-  process.env.EXTRA_COLLEGE_DOMAINS ?? ""
-)
+const EXTRA_COLLEGE_DOMAINS: string[] = (process.env.EXTRA_COLLEGE_DOMAINS ?? "")
   .split(",")
   .map((d) => d.trim().toLowerCase())
   .filter(Boolean);
 
 /** broad academic patterns: .edu, .edu.xx, .ac.xx, .edu.in, .ac.in, etc. */
 const ACADEMIC_REGEXES = [
-  /\.edu$/i, // example.edu
-  /\.edu\.[a-z]{2,}$/i, // example.edu.in, example.edu.au
-  /\.ac\.[a-z]{2,}$/i, // example.ac.in, example.ac.uk
+  /\.edu$/i,                 // example.edu
+  /\.edu\.[a-z]{2,}$/i,      // example.edu.in, example.edu.au
+  /\.ac\.[a-z]{2,}$/i,       // example.ac.in, example.ac.uk
 ];
 
 function isCollegeDomain(domain: string): boolean {
@@ -65,40 +54,7 @@ const authConfig: NextAuthConfig = {
     async signIn({ profile }) {
       const email = profile?.email?.toLowerCase();
       const domain = email?.split("@")[1] ?? "";
-
-      // only allow valid college domains
-      const allowed = !!email && isCollegeDomain(domain);
-      if (!allowed) return false;
-
-      try {
-        const client = await clientPromise;
-        const db = client.db();
-        const users = db.collection("users");
-
-        // ensure user exists with default plan = "free"
-        await users.updateOne(
-          { email },
-          {
-            $setOnInsert: {
-              email,
-              emailDomain: domain,
-              name: profile?.name ?? "",
-              image: profile?.picture ?? "",
-              gender: null,
-              preferredGender: null,
-              planType: "free", // 👈 default on first sign-in
-              planExpiry: null,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            },
-          },
-          { upsert: true } // creates if not exists
-        );
-      } catch (e) {
-        console.error("Error ensuring user in DB:", e);
-      }
-
-      return true;
+      return !!email && isCollegeDomain(domain);
     },
 
     async jwt({ token, user, trigger }) {
