@@ -42,7 +42,7 @@ type UserPlan = {
   };
 };
 
-const SOCKET_URL = "https://3a76eda49028.ngrok-free.app";
+const SOCKET_URL = "https://3d0a9a98866f.ngrok-free.app";
 
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -629,7 +629,7 @@ export default function VideoPageClient() {
       )}
 
       {/* Main Container */}
-      <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 h-screen flex gap-6"} max-w-7xl mx-auto`}>
+      <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 min-h-screen flex gap-6"} max-w-7xl mx-auto`}>
         
         {/* Video Section */}
         {showVideo && (
@@ -674,7 +674,7 @@ export default function VideoPageClient() {
         )}
 
         {/* Chat Section */}
-        <div className={`${isMobile ? "order-1" : "flex-1"} bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col ${isMobile ? "min-h-[500px]" : ""}`}>
+        <div className={`${isMobile ? "order-1" : "flex-1"} bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col ${isMobile ? "min-h-[500px]" : "min-h-[600px]"}`}>
           {/* Status Header */}
           <div className={`p-4 border-b border-white/20`}>
             <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
@@ -759,7 +759,7 @@ export default function VideoPageClient() {
         </div>
 
         {/* Controls Section */}
-        <div className={`${isMobile ? "order-3 space-y-4" : "flex-none w-80 space-y-4"}`}>
+        <div className={`${isMobile ? "order-3 space-y-4" : "flex-none w-80 space-y-4 overflow-y-auto max-h-screen"}`}>
           
           {/* Plan Info Card */}
           {userPlan && (
@@ -790,17 +790,17 @@ export default function VideoPageClient() {
 
           {/* Matching Preferences */}
           {userPlan && (
-            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
-              <h4 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-                <span className="text-xl">🎯</span>
+            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
+              <h4 className="text-white font-bold text-base mb-3 flex items-center gap-2">
+                <span className="text-lg">🎯</span>
                 Matching Preferences
               </h4>
 
-              <div className="space-y-3">
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
                 {userPlan.matchingOptions.map((option) => (
                   <label
                     key={option.type}
-                    className={`block p-3 rounded-xl border cursor-pointer transition-all duration-300 transform hover:scale-105 ${
+                    className={`block p-2.5 rounded-lg border cursor-pointer transition-all duration-300 transform hover:scale-105 ${
                       option.disabled 
                         ? "bg-gray-500/20 border-gray-400/30 cursor-not-allowed opacity-60" 
                         : selectedMatchingOption === option.type 
@@ -809,7 +809,7 @@ export default function VideoPageClient() {
                     }`}
                     onClick={() => handleOptionSelect(option.type, option)}
                   >
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-start gap-2.5">
                       <input
                         type="radio"
                         name="matchingOption"
@@ -817,17 +817,17 @@ export default function VideoPageClient() {
                         checked={selectedMatchingOption === option.type}
                         disabled={option.disabled}
                         onChange={() => {}}
-                        className="mt-1 text-blue-500 focus:ring-blue-400 focus:ring-offset-0"
+                        className="mt-0.5 text-blue-500 focus:ring-blue-400 focus:ring-offset-0 w-3 h-3"
                       />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-lg">{option.icon}</span>
-                          <span className="text-white font-medium text-sm">{option.label}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-base">{option.icon}</span>
+                          <span className="text-white font-medium text-xs leading-tight">{option.label}</span>
                         </div>
                         <p className="text-white/70 text-xs leading-relaxed">{option.description}</p>
                         
                         {option.disabled && (
-                          <div className="mt-2 flex items-center gap-1">
+                          <div className="mt-1.5 flex items-center gap-1">
                             <span className="text-red-400 text-xs">🔒</span>
                             <span className="text-red-400 text-xs font-medium">{option.disabledReason}</span>
                           </div>
@@ -839,28 +839,28 @@ export default function VideoPageClient() {
               </div>
 
               {/* Plan Features Summary */}
-              <div className="mt-4 p-3 bg-white/5 rounded-lg border border-white/10">
-                <div className="text-white/80 text-xs font-medium mb-2">Your Plan Features:</div>
+              <div className="mt-3 p-2.5 bg-white/5 rounded-lg border border-white/10">
+                <div className="text-white/80 text-xs font-medium mb-1.5">Your Plan Features:</div>
                 <div className="text-white/60 text-xs leading-relaxed">
                   {userPlan.user.planType === "free" && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2"><span className="text-green-400">✅</span> Same college matching</div>
-                      <div className="flex items-center gap-2"><span className="text-red-400">❌</span> Inter-college matching</div>
-                      <div className="flex items-center gap-2"><span className="text-red-400">❌</span> Gender filtering</div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
                     </div>
                   )}
                   {userPlan.user.planType === "intercollege" && userPlan.user.hasActivePlan && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2"><span className="text-green-400">✅</span> Same college matching</div>
-                      <div className="flex items-center gap-2"><span className="text-green-400">✅</span> Inter-college matching</div>
-                      <div className="flex items-center gap-2"><span className="text-red-400">❌</span> Gender filtering</div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
                     </div>
                   )}
                   {userPlan.user.planType === "gender" && userPlan.user.hasActivePlan && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2"><span className="text-green-400">✅</span> Same college matching</div>
-                      <div className="flex items-center gap-2"><span className="text-green-400">✅</span> Inter-college matching</div>
-                      <div className="flex items-center gap-2"><span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span></div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span></div>
                     </div>
                   )}
                 </div>
@@ -869,32 +869,32 @@ export default function VideoPageClient() {
           )}
 
           {/* Action Buttons */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
             {!isConnected ? (
               <button
                 onClick={handleStart}
                 disabled={!selectedMatchingOption}
-                className={`w-full p-4 rounded-xl font-bold text-lg transition-all duration-300 transform hover:scale-105 ${
+                className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 transform hover:scale-105 ${
                   selectedMatchingOption
                     ? "bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg hover:shadow-xl"
                     : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
                 }`}
               >
-                <span className="mr-2 text-xl">🚀</span>
+                <span className="mr-2 text-lg">🚀</span>
                 Start Chatting
               </button>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <button
                   onClick={handleNext}
-                  className="w-full p-4 rounded-xl font-bold text-lg bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                  className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                 >
-                  <span className="mr-2 text-xl">⏭️</span>
+                  <span className="mr-2 text-lg">⏭️</span>
                   Next Person
                 </button>
                 <button
                   onClick={handleEnd}
-                  className="w-full p-3 rounded-xl font-medium bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                  className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                 >
                   <span className="mr-2">🛑</span>
                   End Chat
@@ -903,7 +903,7 @@ export default function VideoPageClient() {
             )}
 
             {/* Video Toggle */}
-            <label className="flex items-center gap-3 mt-4 p-3 rounded-xl bg-white/5 border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/10">
+            <label className="flex items-center gap-2.5 mt-3 p-2.5 rounded-xl bg-white/5 border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/10">
               <div className="relative">
                 <input
                   type="checkbox"
@@ -911,59 +911,59 @@ export default function VideoPageClient() {
                   onChange={(e) => setShowVideo(e.target.checked)}
                   className="sr-only"
                 />
-                <div className={`w-12 h-6 rounded-full transition-all duration-300 ${showVideo ? "bg-blue-500" : "bg-gray-600"}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full transition-all duration-300 transform ${showVideo ? "translate-x-6" : "translate-x-0.5"} mt-0.5`}></div>
+                <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-blue-500" : "bg-gray-600"}`}>
+                  <div className={`w-4 h-4 bg-white rounded-full transition-all duration-300 transform ${showVideo ? "translate-x-5" : "translate-x-0.5"} mt-0.5`}></div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xl">📹</span>
-                <span className="text-white font-medium">Enable Video Chat</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-lg">📹</span>
+                <span className="text-white font-medium text-sm">Enable Video Chat</span>
               </div>
             </label>
           </div>
 
           {/* Info Panel */}
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
-            <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-              <span className="text-xl">💡</span>
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
+            <h3 className="text-white font-bold text-base mb-3 flex items-center gap-2">
+              <span className="text-lg">💡</span>
               How it works
             </h3>
             
-            <div className="space-y-2 text-white/80 text-sm">
-              <div className="flex items-center gap-2">
+            <div className="space-y-1.5 text-white/80 text-xs">
+              <div className="flex items-center gap-1.5">
                 <span className="text-blue-400">•</span>
                 <span>Choose your matching preference</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <span className="text-green-400">•</span>
                 <span>Click "Start" to find someone</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <span className="text-purple-400">•</span>
                 <span>Chat via text or enable video</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <span className="text-orange-400">•</span>
                 <span>Use "Next" to find a new person</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <span className="text-red-400">•</span>
                 <span>Click "End" to stop completely</span>
               </div>
             </div>
 
-            <div className="mt-4 p-3 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-400/30">
-              <p className="text-white/90 text-sm text-center font-medium">
-                <span className="text-xl mr-1">🎉</span>
+            <div className="mt-3 p-2.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-400/30">
+              <p className="text-white/90 text-xs text-center font-medium">
+                <span className="text-base mr-1">🎉</span>
                 Be respectful and have fun!
               </p>
             </div>
 
             {/* Plan-specific messages */}
             {userPlan?.planStatus.isActive && userPlan.planStatus.planName !== "Free Plan" && (
-              <div className="mt-4 p-3 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-lg border border-emerald-400/30">
+              <div className="mt-3 p-2.5 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-lg border border-emerald-400/30">
                 <p className="text-white/90 text-xs text-center">
-                  <span className="text-lg mr-1">💎</span>
+                  <span className="text-base mr-1">💎</span>
                   You have {userPlan.planStatus.planName}!
                   {userPlan.user.planType === "gender" && " Filter by gender in your college and inter-college!"}
                   {userPlan.user.planType === "intercollege" && " Match with any college!"}
@@ -972,9 +972,9 @@ export default function VideoPageClient() {
             )}
 
             {(!userPlan?.user.hasActivePlan || userPlan.user.planType === "free") && (
-              <div className="mt-4 p-3 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-lg border border-yellow-400/30">
+              <div className="mt-3 p-2.5 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-lg border border-yellow-400/30">
                 <p className="text-white/90 text-xs text-center">
-                  <span className="text-lg mr-1">⭐</span>
+                  <span className="text-base mr-1">⭐</span>
                   Want more options? Upgrade to unlock inter-college matching and gender filtering!
                 </p>
               </div>
