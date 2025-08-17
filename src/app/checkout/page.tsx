@@ -34,7 +34,7 @@ declare global {
 // ----- Plan metadata (unchanged) -----
 const PLANS = {
   free: { name: "Basic Free", price: 0 },
-  basic: { name: "Basic All-Colleges", price: 1 },
+  basic: { name: "Basic All-Colleges", price: 69 },
   premium: { name: "Premium Ultimate", price: 169 },
 };
 
