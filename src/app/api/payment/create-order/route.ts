@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     //   ? "https://api.cashfree.com/pg/orders"
     //   : "https://sandbox.cashfree.com/pg/orders";
 
-    const cashfreeUrl = "https://sandbox.cashfree.com/pg/orders";
+    const cashfreeUrl = "https://api.cashfree.com/pg/orders";
 
     const response = await fetch(cashfreeUrl, {
       method: "POST",
