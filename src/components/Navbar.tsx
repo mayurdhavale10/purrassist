@@ -10,7 +10,7 @@ export default function Navbar() {
   const { data: session, status } = useSession();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Helper: handle protected navigation
+  // Helper: handle protected navigationn
   const handleProtectedClick = (path: string) => {
     if (!session) {
       signIn("google", { callbackUrl: path }); // redirect to login, then back

@@ -72,6 +72,7 @@ export default function VideoPageClient() {
   const [strangerTyping, setStrangerTyping] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
 
   // Plan-related
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
@@ -93,9 +94,11 @@ export default function VideoPageClient() {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // Auto-scroll chat
+  // Auto-scroll chat only when new messages arrive, not when typing
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!isTyping) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   // Toast auto-hide
@@ -270,6 +273,8 @@ export default function VideoPageClient() {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
+        // Fix mirror effect - show original image
+        localVideoRef.current.style.transform = "scaleX(1)";
         localVideoRef.current.play().catch(() => {});
       }
       setStatusMessage("Camera ready. Choose your matching preference and click 'Start'...");
@@ -547,364 +552,316 @@ export default function VideoPageClient() {
     setMessages((prev) => [...prev, message]);
     socketRef.current.emit("chatMessage", { message: messageInput, target: partnerId });
     setMessageInput("");
+    setIsTyping(false);
   }
 
   function handleTyping() {
     if (!socketRef.current || !isConnected) return;
+    setIsTyping(true);
     socketRef.current.emit("typing", { target: partnerId, isTyping: true });
-    setTimeout(() => socketRef.current?.emit("typing", { target: partnerId, isTyping: false }), 2000);
+    
+    // Stop typing indicator after 2 seconds
+    setTimeout(() => {
+      setIsTyping(false);
+      socketRef.current?.emit("typing", { target: partnerId, isTyping: false });
+    }, 2000);
   }
 
   // Loading & unauthenticated
   if (loading || status === "loading") {
-    return <div style={centeredPage}>Loading...</div>;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mb-4"></div>
+          <p className="text-white text-xl font-light">Loading...</p>
+        </div>
+      </div>
+    );
   }
+  
   if (status === "unauthenticated") {
-    return <div style={centeredPage}>Please sign in to use the chat</div>;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-center p-8 bg-white/10 backdrop-blur-lg rounded-2xl">
+          <p className="text-white text-xl font-light">Please sign in to use the chat</p>
+        </div>
+      </div>
+    );
   }
-
-  // Styles
-  const containerStyle: React.CSSProperties = {
-    minHeight: "100vh",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    fontFamily: "Arial, sans-serif",
-    position: "relative",
-  };
-
-  const toastStyle: React.CSSProperties = {
-    position: "fixed",
-    top: "20px",
-    right: "20px",
-    padding: "12px 20px",
-    borderRadius: "8px",
-    color: "white",
-    fontWeight: "500",
-    zIndex: 1000,
-    maxWidth: "300px",
-    background: showToast?.type === "error" ? "#ef4444" : "#3b82f6",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-  };
-
-  const mainContainerStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: isMobile ? "column" : "row",
-    height: isMobile ? "auto" : "calc(100vh - 20px)",
-    maxWidth: "1400px",
-    margin: "0 auto",
-    padding: isMobile ? "10px" : "20px",
-    gap: isMobile ? "15px" : "20px",
-  };
-
-  const videoSectionStyle: React.CSSProperties = {
-    flex: isMobile ? "none" : "0 0 400px",
-    background: "#fff",
-    borderRadius: "15px",
-    padding: isMobile ? "15px" : "20px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
-    display: showVideo ? "block" : "none",
-  };
-
-  const videoContainerStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: isMobile ? "row" : "column",
-    gap: "15px",
-  };
-
-  const videoWrapperStyle: React.CSSProperties = { flex: isMobile ? "1" : "none" };
-
-  const videoStyle: React.CSSProperties = {
-    width: "100%",
-    height: isMobile ? "150px" : "200px",
-    background: "#000",
-    borderRadius: "10px",
-    objectFit: "cover",
-  };
-
-  const chatSectionStyle: React.CSSProperties = {
-    flex: 1,
-    background: "#fff",
-    borderRadius: "15px",
-    padding: isMobile ? "15px" : "20px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
-    display: "flex",
-    flexDirection: "column",
-    minHeight: isMobile ? "400px" : "auto",
-  };
-
-  const controlsSectionStyle: React.CSSProperties = {
-    flex: isMobile ? "none" : "0 0 320px",
-    display: "flex",
-    flexDirection: isMobile ? "row" : "column",
-    gap: "15px",
-  };
-
-  const controlsCardStyle: React.CSSProperties = {
-    background: "#fff",
-    borderRadius: "15px",
-    padding: isMobile ? "15px" : "20px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.1)",
-    flex: isMobile ? "1" : "none",
-  };
 
   return (
-    <div style={containerStyle}>
-      {/* Toast */}
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 relative overflow-hidden">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-cyan-500/20 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
+      </div>
+
+      {/* Floating particles */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {[...Array(20)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute w-1 h-1 bg-white/30 rounded-full"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              animationDelay: `${Math.random() * 3}s`,
+              animation: `float ${3 + Math.random() * 2}s ease-in-out infinite alternate`
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Toast Notification */}
       {showToast && (
-        <div style={toastStyle}>
-          {showToast.message}
+        <div className={`fixed top-6 right-6 z-50 p-4 rounded-xl backdrop-blur-lg shadow-2xl transform transition-all duration-300 ${
+          showToast.type === "error" 
+            ? "bg-red-500/90 text-white border border-red-400/50" 
+            : "bg-blue-500/90 text-white border border-blue-400/50"
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">{showToast.type === "error" ? "⚠️" : "ℹ️"}</span>
+            <span className="font-medium">{showToast.message}</span>
+          </div>
         </div>
       )}
 
-      <div style={mainContainerStyle}>
+      {/* Main Container */}
+      <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 min-h-screen flex gap-6"} max-w-7xl mx-auto`}>
+        
         {/* Video Section */}
         {showVideo && (
-          <div style={videoSectionStyle}>
-            <div style={videoContainerStyle}>
-              <div style={videoWrapperStyle}>
-                <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>You</div>
-                <video ref={localVideoRef} autoPlay muted playsInline style={videoStyle} />
+          <div className={`${isMobile ? "order-2" : "flex-none w-96"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
+            <div className={`${isMobile ? "flex gap-4" : "space-y-4"}`}>
+              {/* Local Video */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-white/80 text-sm font-medium">You</span>
+                </div>
+                <div className="relative group">
+                  <video 
+                    ref={localVideoRef} 
+                    autoPlay 
+                    muted 
+                    playsInline
+                    className={`w-full ${isMobile ? "h-32" : "h-48"} bg-gray-900 rounded-xl object-cover transition-all duration-300 group-hover:scale-105`}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
+                </div>
               </div>
-              <div style={videoWrapperStyle}>
-                <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>Stranger</div>
-                <video ref={remoteVideoRef} autoPlay playsInline style={videoStyle} />
+              
+              {/* Remote Video */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                  <span className="text-white/80 text-sm font-medium">Stranger</span>
+                </div>
+                <div className="relative group">
+                  <video 
+                    ref={remoteVideoRef} 
+                    autoPlay 
+                    playsInline
+                    className={`w-full ${isMobile ? "h-32" : "h-48"} bg-gray-900 rounded-xl object-cover transition-all duration-300 group-hover:scale-105`}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
+                </div>
               </div>
             </div>
           </div>
         )}
 
         {/* Chat Section */}
-        <div style={chatSectionStyle}>
-          {/* Status */}
-          <div
-            style={{
-              background: isConnected ? "#10b981" : "#6b7280",
-              color: "white",
-              padding: "12px 16px",
-              borderRadius: "10px",
-              marginBottom: "15px",
-              fontSize: isMobile ? "12px" : "14px",
-              fontWeight: "500",
-            }}
-          >
-            {statusMessage}
+        <div className={`${isMobile ? "order-1" : "flex-1"} bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col ${isMobile ? "min-h-[500px]" : "min-h-[600px]"}`}>
+          {/* Status Header */}
+          <div className={`p-4 border-b border-white/20`}>
+            <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
+              isConnected 
+                ? "bg-green-500/20 border border-green-400/30" 
+                : "bg-orange-500/20 border border-orange-400/30"
+            }`}>
+              <div className={`w-3 h-3 rounded-full animate-pulse ${isConnected ? "bg-green-400" : "bg-orange-400"}`}></div>
+              <span className="text-white font-medium text-sm">{statusMessage}</span>
+            </div>
           </div>
 
-          {/* Messages */}
-          <div
-            style={{
-              flex: 1,
-              border: "2px solid #e5e7eb",
-              borderRadius: "10px",
-              padding: "15px",
-              background: "#f9fafb",
-              overflowY: "auto",
-              marginBottom: "15px",
-              minHeight: isMobile ? "200px" : "300px",
-              maxHeight: isMobile ? "300px" : "none",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            {messages.map((msg) => (
+          {/* Messages Area */}
+          <div className="flex-1 p-4 overflow-y-auto space-y-3" style={{ minHeight: isMobile ? "300px" : "400px" }}>
+            {messages.map((msg, index) => (
               <div
                 key={msg.id}
-                style={{
-                  alignSelf: msg.sender === "you" ? "flex-end" : "flex-start",
-                  marginBottom: "0",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
-                  background: msg.sender === "you" ? "#3b82f6" : "#e5e7eb",
-                  color: msg.sender === "you" ? "white" : "#374151",
-                  maxWidth: "80%",
-                  wordWrap: "break-word",
-                  fontSize: isMobile ? "14px" : "16px",
-                }}
+                className={`flex ${msg.sender === "you" ? "justify-end" : "justify-start"} animate-fade-in`}
+                style={{ animationDelay: `${index * 0.1}s` }}
               >
-                <div style={{ fontSize: "10px", opacity: 0.7, marginBottom: "2px" }}>
-                  {msg.sender === "you" ? "You" : "Stranger"}
+                <div className={`max-w-[80%] p-3 rounded-2xl backdrop-blur-sm border transition-all duration-300 hover:scale-105 ${
+                  msg.sender === "you"
+                    ? "bg-blue-500/90 text-white border-blue-400/50 rounded-br-md"
+                    : "bg-white/20 text-white border-white/30 rounded-bl-md"
+                }`}>
+                  <div className="text-xs opacity-70 mb-1">
+                    {msg.sender === "you" ? "You" : "Stranger"}
+                  </div>
+                  <div className="text-sm leading-relaxed">{msg.text}</div>
                 </div>
-                {msg.text}
               </div>
             ))}
+            
             {strangerTyping && (
-              <div style={{ color: "#6b7280", fontSize: "12px", fontStyle: "italic", padding: "8px 12px" }}>
-                Stranger is typing...
+              <div className="flex justify-start animate-fade-in">
+                <div className="bg-white/20 backdrop-blur-sm border border-white/30 p-3 rounded-2xl rounded-bl-md">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/80 text-sm">Stranger is typing</span>
+                    <div className="flex gap-1">
+                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
+                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
+                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
             <div ref={chatEndRef} />
           </div>
 
           {/* Message Input */}
-          <div style={{ display: "flex", gap: "10px", flexDirection: isMobile ? "column" : "row" }}>
-            <input
-              type="text"
-              value={messageInput}
-              onChange={(e) => {
-                setMessageInput(e.target.value);
-                handleTyping();
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-              placeholder={isConnected ? "Type your message..." : "Connect to start chatting"}
-              disabled={!isConnected}
-              style={{
-                flex: 1,
-                padding: "12px 16px",
-                border: "2px solid #e5e7eb",
-                borderRadius: "10px",
-                fontSize: "14px",
-                outline: "none",
-                background: isConnected ? "white" : "#f3f4f6",
-              }}
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={!isConnected || !messageInput.trim()}
-              style={{
-                padding: "12px 20px",
-                background: isConnected && messageInput.trim() ? "#3b82f6" : "#9ca3af",
-                color: "white",
-                border: "none",
-                borderRadius: "10px",
-                cursor: isConnected && messageInput.trim() ? "pointer" : "not-allowed",
-                fontWeight: "500",
-                minWidth: isMobile ? "auto" : "80px",
-              }}
-            >
-              Send
-            </button>
+          <div className="p-4 border-t border-white/20">
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={messageInput}
+                onChange={(e) => {
+                  setMessageInput(e.target.value);
+                  if (e.target.value && !isTyping) {
+                    handleTyping();
+                  }
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                placeholder={isConnected ? "Type your message..." : "Connect to start chatting"}
+                disabled={!isConnected}
+                className="flex-1 p-3 bg-white/10 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/60 focus:outline-none focus:border-blue-400/50 focus:bg-white/20 transition-all duration-300"
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!isConnected || !messageInput.trim()}
+                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
+                  isConnected && messageInput.trim()
+                    ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg hover:shadow-xl"
+                    : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
+                }`}
+              >
+                <span className="mr-1">✈️</span>
+                Send
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Controls */}
-        <div style={controlsSectionStyle}>
-          {/* Plan Info */}
+        {/* Controls Section */}
+        <div className={`${isMobile ? "order-3 space-y-4" : "flex-none w-80 space-y-4 overflow-y-auto max-h-screen"}`}>
+          
+          {/* Plan Info Card */}
           {userPlan && (
-            <div
-              style={{
-                ...controlsCardStyle,
-                background: userPlan.planStatus.isActive ? "linear-gradient(45deg, #10b981, #059669)" : "#f3f4f6",
-                color: userPlan.planStatus.isActive ? "white" : "#374151",
-              }}
-            >
-              <h3 style={{ margin: "0 0 10px", fontSize: isMobile ? "14px" : "16px" }}>
-                {userPlan.planStatus.planName}
-              </h3>
-              <p style={{ margin: "0 0 5px", fontSize: "12px", opacity: 0.8 }}>
-                College: {userPlan.user.college}
-              </p>
-              {userPlan.planStatus.daysRemaining !== undefined &&
-                userPlan.planStatus.daysRemaining !== null && (
-                  <p style={{ margin: "0", fontSize: "12px", opacity: 0.8 }}>
-                    {userPlan.planStatus.daysRemaining} days remaining
+            <div className={`p-6 rounded-2xl border shadow-2xl transition-all duration-300 hover:scale-105 ${
+              userPlan.planStatus.isActive 
+                ? "bg-gradient-to-br from-emerald-500/90 to-teal-600/90 border-emerald-400/50" 
+                : "bg-white/10 backdrop-blur-lg border-white/20"
+            }`}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`p-2 rounded-lg ${userPlan.planStatus.isActive ? "bg-white/20" : "bg-purple-500/20"}`}>
+                  <span className="text-xl">{userPlan.planStatus.isActive ? "💎" : "🆓"}</span>
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-lg">{userPlan.planStatus.planName}</h3>
+                  <p className="text-white/70 text-sm">{userPlan.user.college}</p>
+                </div>
+              </div>
+              
+              {userPlan.planStatus.daysRemaining !== undefined && userPlan.planStatus.daysRemaining !== null && (
+                <div className="bg-white/10 rounded-lg p-2 mt-3">
+                  <p className="text-white/80 text-xs text-center">
+                    <span className="font-medium">{userPlan.planStatus.daysRemaining}</span> days remaining
                   </p>
-                )}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Matching Options */}
+          {/* Matching Preferences */}
           {userPlan && (
-            <div style={controlsCardStyle}>
-              <h4 style={{ margin: "0 0 15px", fontSize: isMobile ? "12px" : "14px", color: "#374151" }}>
+            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
+              <h4 className="text-white font-bold text-base mb-3 flex items-center gap-2">
+                <span className="text-lg">🎯</span>
                 Matching Preferences
               </h4>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
                 {userPlan.matchingOptions.map((option) => (
                   <label
                     key={option.type}
-                    style={{
-                      display: "block",
-                      padding: "10px 12px",
-                      margin: "0",
-                      border: option.disabled 
-                        ? "1px solid #d1d5db" 
+                    className={`block p-2.5 rounded-lg border cursor-pointer transition-all duration-300 transform hover:scale-105 ${
+                      option.disabled 
+                        ? "bg-gray-500/20 border-gray-400/30 cursor-not-allowed opacity-60" 
                         : selectedMatchingOption === option.type 
-                          ? "2px solid #3b82f6" 
-                          : "1px solid #e5e7eb",
-                      borderRadius: "8px",
-                      cursor: option.disabled ? "not-allowed" : "pointer",
-                      fontSize: "12px",
-                      background: option.disabled 
-                        ? "#f9fafb" 
-                        : selectedMatchingOption === option.type 
-                          ? "#eff6ff" 
-                          : "white",
-                      opacity: option.disabled ? 0.6 : 1,
-                      position: "relative",
-                    }}
+                          ? "bg-blue-500/30 border-blue-400/50 shadow-lg" 
+                          : "bg-white/5 border-white/20 hover:bg-white/10"
+                    }`}
                     onClick={() => handleOptionSelect(option.type, option)}
                   >
-                    <input
-                      type="radio"
-                      name="matchingOption"
-                      value={option.type}
-                      checked={selectedMatchingOption === option.type}
-                      disabled={option.disabled}
-                      onChange={() => {}} // Handled by label onClick
-                      style={{ 
-                        marginRight: "8px",
-                        cursor: option.disabled ? "not-allowed" : "pointer",
-                      }}
-                    />
-                    <span style={{ fontWeight: "500", color: option.disabled ? "#9ca3af" : "#374151" }}>
-                      {option.icon} {option.label}
-                    </span>
-                    
-                    {option.disabled && (
-                      <div style={{ 
-                        fontSize: "10px", 
-                        color: "#ef4444", 
-                        marginTop: "4px",
-                        fontWeight: "500"
-                      }}>
-                        🔒 {option.disabledReason}
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="radio"
+                        name="matchingOption"
+                        value={option.type}
+                        checked={selectedMatchingOption === option.type}
+                        disabled={option.disabled}
+                        onChange={() => {}}
+                        className="mt-0.5 text-blue-500 focus:ring-blue-400 focus:ring-offset-0 w-3 h-3"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-base">{option.icon}</span>
+                          <span className="text-white font-medium text-xs leading-tight">{option.label}</span>
+                        </div>
+                        <p className="text-white/70 text-xs leading-relaxed">{option.description}</p>
+                        
+                        {option.disabled && (
+                          <div className="mt-1.5 flex items-center gap-1">
+                            <span className="text-red-400 text-xs">🔒</span>
+                            <span className="text-red-400 text-xs font-medium">{option.disabledReason}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    
-                    <div style={{ 
-                      fontSize: "10px", 
-                      color: option.disabled ? "#9ca3af" : "#6b7280", 
-                      marginTop: "2px" 
-                    }}>
-                      {option.description}
                     </div>
                   </label>
                 ))}
               </div>
 
-              {/* Plan Feature Summary */}
-              <div style={{ 
-                marginTop: "15px", 
-                padding: "10px", 
-                background: "#f8fafc", 
-                borderRadius: "6px",
-                border: "1px solid #e2e8f0" 
-              }}>
-                <div style={{ fontSize: "11px", color: "#475569", fontWeight: "500", marginBottom: "5px" }}>
-                  Your Plan Features:
-                </div>
-                <div style={{ fontSize: "10px", color: "#64748b", lineHeight: "1.4" }}>
+              {/* Plan Features Summary */}
+              <div className="mt-3 p-2.5 bg-white/5 rounded-lg border border-white/10">
+                <div className="text-white/80 text-xs font-medium mb-1.5">Your Plan Features:</div>
+                <div className="text-white/60 text-xs leading-relaxed">
                   {userPlan.user.planType === "free" && (
-                    <>
-                      ✅ Same college matching<br/>
-                      ❌ Inter-college matching<br/>
-                      ❌ Gender filtering
-                    </>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
+                    </div>
                   )}
                   {userPlan.user.planType === "intercollege" && userPlan.user.hasActivePlan && (
-                    <>
-                      ✅ Same college matching<br/>
-                      ✅ Inter-college matching<br/>
-                      ❌ Gender filtering
-                    </>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
+                    </div>
                   )}
                   {userPlan.user.planType === "gender" && userPlan.user.hasActivePlan && (
-                    <>
-                      ✅ Same college matching<br/>
-                      ✅ Inter-college matching<br/>
-                      ✅ Gender filtering (Premium!)
-                    </>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span></div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -912,147 +869,196 @@ export default function VideoPageClient() {
           )}
 
           {/* Action Buttons */}
-          <div style={controlsCardStyle}>
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
             {!isConnected ? (
               <button
                 onClick={handleStart}
                 disabled={!selectedMatchingOption}
-                style={{
-                  width: "100%",
-                  padding: "15px",
-                  border: "none",
-                  borderRadius: "10px",
-                  fontSize: isMobile ? "14px" : "16px",
-                  fontWeight: "bold",
-                  cursor: selectedMatchingOption ? "pointer" : "not-allowed",
-                  marginBottom: "10px",
-                  background: selectedMatchingOption
-                    ? "linear-gradient(45deg, #10b981, #059669)"
-                    : "#9ca3af",
-                  color: "white",
-                }}
+                className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 transform hover:scale-105 ${
+                  selectedMatchingOption
+                    ? "bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg hover:shadow-xl"
+                    : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
+                }`}
               >
-                🚀 Start Chatting
+                <span className="mr-2 text-lg">🚀</span>
+                Start Chatting
               </button>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div className="space-y-2.5">
                 <button
                   onClick={handleNext}
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    border: "none",
-                    borderRadius: "10px",
-                    fontSize: isMobile ? "14px" : "16px",
-                    fontWeight: "bold",
-                    cursor: "pointer",
-                    background: "linear-gradient(45deg, #ef4444, #dc2626)",
-                    color: "white",
-                  }}
+                  className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                 >
-                  ➡️ Next
+                  <span className="mr-2 text-lg">⏭️</span>
+                  Next Person
                 </button>
                 <button
                   onClick={handleEnd}
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    border: "none",
-                    borderRadius: "10px",
-                    fontSize: isMobile ? "14px" : "16px",
-                    fontWeight: "bold",
-                    cursor: "pointer",
-                    background: "linear-gradient(45deg, #6b7280, #4b5563)",
-                    color: "white",
-                  }}
+                  className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                 >
-                  🛑 End Chat
+                  <span className="mr-2">🛑</span>
+                  End Chat
                 </button>
               </div>
             )}
 
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                cursor: "pointer",
-                fontSize: isMobile ? "12px" : "14px",
-                marginTop: "15px",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={showVideo}
-                onChange={(e) => setShowVideo(e.target.checked)}
-                style={{ transform: "scale(1.2)" }}
-              />
-              <span style={{ color: "#374151" }}>Enable Video Chat</span>
+            {/* Video Toggle */}
+            <label className="flex items-center gap-2.5 mt-3 p-2.5 rounded-xl bg-white/5 border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/10">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={showVideo}
+                  onChange={(e) => setShowVideo(e.target.checked)}
+                  className="sr-only"
+                />
+                <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-blue-500" : "bg-gray-600"}`}>
+                  <div className={`w-4 h-4 bg-white rounded-full transition-all duration-300 transform ${showVideo ? "translate-x-5" : "translate-x-0.5"} mt-0.5`}></div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-lg">📹</span>
+                <span className="text-white font-medium text-sm">Enable Video Chat</span>
+              </div>
             </label>
           </div>
 
           {/* Info Panel */}
-          {(!isMobile || !showVideo) && (
-            <div style={{ ...controlsCardStyle, fontSize: "12px", color: "#6b7280", lineHeight: "1.5" }}>
-              <h3 style={{ margin: "0 0 10px", color: "#374151", fontSize: isMobile ? "12px" : "14px" }}>
-                How it works:
-              </h3>
-              <p>• Choose your matching preference</p>
-              <p>• Click "Start" to find someone</p>
-              <p>• Chat via text or enable video</p>
-              <p>• Use "Next" to find a new person</p>
-              <p>• Click "End" to stop completely</p>
-              <p>• Be respectful and have fun! 🎉</p>
-
-              {userPlan?.planStatus.isActive && userPlan.planStatus.planName !== "Free Plan" && (
-                <div
-                  style={{
-                    marginTop: "10px",
-                    padding: "8px",
-                    background: "#f0f9ff",
-                    borderRadius: "6px",
-                    border: "1px solid #bae6fd",
-                  }}
-                >
-                  <p style={{ margin: "0", color: "#0369a1", fontSize: "11px" }}>
-                    🎉 You have {userPlan.planStatus.planName}!
-                    {userPlan.user.planType === "gender" && " Filter by gender in your college and inter-college!"}
-                    {userPlan.user.planType === "intercollege" && " Match with any college!"}
-                  </p>
-                </div>
-              )}
-
-              {/* Upgrade suggestions for free users */}
-              {(!userPlan?.user.hasActivePlan || userPlan.user.planType === "free") && (
-                <div
-                  style={{
-                    marginTop: "10px",
-                    padding: "8px",
-                    background: "#fef3c7",
-                    borderRadius: "6px",
-                    border: "1px solid #fbbf24",
-                  }}
-                >
-                  <p style={{ margin: "0", color: "#92400e", fontSize: "11px" }}>
-                    💎 Want more options? Upgrade to unlock inter-college matching and gender filtering!
-                  </p>
-                </div>
-              )}
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
+            <h3 className="text-white font-bold text-base mb-3 flex items-center gap-2">
+              <span className="text-lg">💡</span>
+              How it works
+            </h3>
+            
+            <div className="space-y-1.5 text-white/80 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-blue-400">•</span>
+                <span>Choose your matching preference</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-green-400">•</span>
+                <span>Click "Start" to find someone</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-purple-400">•</span>
+                <span>Chat via text or enable video</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-orange-400">•</span>
+                <span>Use "Next" to find a new person</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-red-400">•</span>
+                <span>Click "End" to stop completely</span>
+              </div>
             </div>
-          )}
+
+            <div className="mt-3 p-2.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-400/30">
+              <p className="text-white/90 text-xs text-center font-medium">
+                <span className="text-base mr-1">🎉</span>
+                Be respectful and have fun!
+              </p>
+            </div>
+
+            {/* Plan-specific messages */}
+            {userPlan?.planStatus.isActive && userPlan.planStatus.planName !== "Free Plan" && (
+              <div className="mt-3 p-2.5 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-lg border border-emerald-400/30">
+                <p className="text-white/90 text-xs text-center">
+                  <span className="text-base mr-1">💎</span>
+                  You have {userPlan.planStatus.planName}!
+                  {userPlan.user.planType === "gender" && " Filter by gender in your college and inter-college!"}
+                  {userPlan.user.planType === "intercollege" && " Match with any college!"}
+                </p>
+              </div>
+            )}
+
+            {(!userPlan?.user.hasActivePlan || userPlan.user.planType === "free") && (
+              <div className="mt-3 p-2.5 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-lg border border-yellow-400/30">
+                <p className="text-white/90 text-xs text-center">
+                  <span className="text-base mr-1">⭐</span>
+                  Want more options? Upgrade to unlock inter-college matching and gender filtering!
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      <style jsx>{`
+        @keyframes float {
+          0% { transform: translateY(0px) rotate(0deg); }
+          100% { transform: translateY(-10px) rotate(5deg); }
+        }
+        
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-fade-in {
+          animation: fade-in 0.3s ease-out forwards;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+          width: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.3);
+          border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.5);
+        }
+        
+        /* Prevent scroll when typing */
+        .chat-container {
+          scroll-behavior: smooth;
+        }
+        
+        /* Video mirror fix */
+        video {
+          transform: scaleX(1) !important;
+        }
+        
+        /* Glassmorphism effect */
+        .backdrop-blur-lg {
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+        }
+        
+        .backdrop-blur-sm {
+          backdrop-filter: blur(4px);
+          -webkit-backdrop-filter: blur(4px);
+        }
+        
+        /* Enhanced hover effects */
+        .transform {
+          transition: transform 0.2s ease-in-out;
+        }
+        
+        .hover\\:scale-105:hover {
+          transform: scale(1.05);
+        }
+        
+        /* Gradient animations */
+        .bg-gradient-to-br {
+          background-size: 400% 400%;
+          animation: gradient 15s ease infinite;
+        }
+        
+        @keyframes gradient {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+      `}</style>
     </div>
   );
 }
-
-/* Shared styles */
-const centeredPage: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-  color: "white",
-  fontSize: "18px",
-};
