@@ -14,6 +14,15 @@ export default function Home() {
   const [isMuted, setIsMuted] = useState(true);
   const [showGenderModal, setShowGenderModal] = useState(false);
 
+  // Helper: handle protected navigation
+  const handleProtectedClick = (path: string) => {
+    if (!session.data) {
+      signIn("google", { callbackUrl: path }); // redirect to login, then back
+    } else {
+      window.location.href = path; // go directly if logged in
+    }
+  };
+
   // Simplified logic for showing content and modal
   useEffect(() => {
     console.log("Session status:", session.status);
@@ -69,7 +78,7 @@ export default function Home() {
   // --- Scroll reveal ---
   useEffect(() => {
     const cards = document.querySelectorAll<HTMLElement>(
-      ".reveal-on-scroll, .scroll-animate, .how-it-works-card"
+      ".reveal-on-scroll, .scroll-animate, .how-it-works-card, .community-card"
     );
     const io = new IntersectionObserver(
       (entries) => {
@@ -401,6 +410,21 @@ export default function Home() {
           transition: transform 0.3s ease;
         }
 
+        /* Community cards specific styles */
+        .community-card {
+          opacity: 0;
+          transform: translateY(30px);
+          transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+        .community-card.in-view {
+          opacity: 1;
+          transform: translateY(0);
+        }
+        .community-card:hover {
+          transform: translateY(-8px);
+          transition: transform 0.3s ease;
+        }
+
         .marquee {
           position: absolute;
           top: 0;
@@ -593,7 +617,8 @@ export default function Home() {
           .reveal-on-scroll,
           .animate-fade-in-up,
           .scroll-animate,
-          .step-circle-container {
+          .step-circle-container,
+          .community-card {
             transition: none !important;
             animation: none !important;
             opacity: 1 !important;
@@ -1016,11 +1041,75 @@ export default function Home() {
               <PricingCards />
             </div>
 
-            {/* Real Connection Stories with Images - NEW SECTION */}
+            {/* CONNECTIONS BEGINNING SECTION - Just before stories */}
             <section className="relative z-10 w-full max-w-6xl mx-auto mt-16 px-4 scroll-animate slide-up">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-                {/* Bike Story */}
-                <article className="reveal-on-scroll connection-story-card">
+              {/* Background with subtle gradient */}
+              <div className="relative bg-gradient-to-br from-teal-50/50 via-blue-50/30 to-purple-50/50 rounded-3xl p-8 md:p-12 border border-teal-100/50 shadow-sm">
+                <div className="text-center mb-8">
+                  <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">
+                    Connections Are Just the Beginning
+                  </h2>
+                  
+                  <p className="text-lg text-slate-700 max-w-3xl mx-auto mb-6">
+                    We help you build your community, discover your vibe, and find your tribe.
+                  </p>
+
+                  {/* Step Flow - More integrated with background */}
+                  <div className="flex flex-wrap items-center justify-center gap-3 text-base md:text-lg font-bold text-slate-800 mb-8">
+                    <span className="bg-teal-100/70 px-3 py-2 rounded-full text-sm md:text-base">
+                      🔐 Login
+                    </span>
+                    <span className="text-teal-600 text-lg md:text-xl">→</span>
+                    <span className="bg-teal-100/70 px-3 py-2 rounded-full text-sm md:text-base">
+                      🎥 Video Chat
+                    </span>
+                    <span className="text-teal-600 text-lg md:text-xl">→</span>
+                    <span className="bg-teal-100/70 px-3 py-2 rounded-full text-sm md:text-base">
+                      🤝 Make Friends
+                    </span>
+                    <span className="text-teal-600 text-lg md:text-xl">→</span>
+                    <span className="bg-teal-100/70 px-3 py-2 rounded-full text-sm md:text-base">
+                      👥 Add to Tribe
+                    </span>
+                    <span className="text-teal-600 text-lg md:text-xl">→</span>
+                    <span className="bg-teal-100/70 px-3 py-2 rounded-full text-sm md:text-base">
+                      🌐 Stay Connected
+                    </span>
+                    <span className="text-teal-600 text-lg md:text-xl">→</span>
+                    <span className="bg-teal-100/70 px-3 py-2 rounded-full text-sm md:text-base">
+                      🎯 Join Communities
+                    </span>
+                  </div>
+
+                  <h3 className="text-xl md:text-2xl font-bold text-slate-900 mb-4">
+                    Click on Connections to Know More
+                  </h3>
+                  
+                  <div className="flex justify-center">
+                    <button
+                      onClick={() => handleProtectedClick("/connections")}
+                      className="inline-flex items-center rounded-xl px-4 py-2 text-sm font-medium bg-teal-200/80 text-teal-900 ring-1 ring-teal-300/70 hover:bg-teal-200 transition"
+                    >
+                      Connections
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* Our Communities Section */}
+            <section className="relative z-10 w-full max-w-7xl mx-auto mt-16 px-4 scroll-animate slide-up">
+              {/* Right-aligned heading */}
+              <div className="flex justify-end mb-8">
+                <h2 className="text-3xl md:text-4xl font-bold text-slate-900 text-right">
+                  Our Communities
+                </h2>
+              </div>
+
+              {/* Communities Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Bike Community */}
+                <article className="reveal-on-scroll community-card">
                   <div className="relative rounded-2xl overflow-hidden mb-4 shadow-lg">
                     <Image
                       src="/bike.webp"
@@ -1051,15 +1140,23 @@ export default function Home() {
                       <div className="bg-yellow-50 p-3 rounded-lg border-l-4 border-yellow-400">
                         <p><strong>Pratap:</strong> <em>&quot;You&apos;re both wrong—the Splendor is the true king of Indian roads!&quot;</em></p>
                       </div>
-                      <p className="text-center font-semibold text-orange-600 mt-4">
-                        Whose side are you on?
-                      </p>
+                      <div className="mt-6 text-center">
+                        <p className="font-semibold text-orange-600 mb-3">
+                          Whose side are you on?
+                        </p>
+                        <button
+                          onClick={() => handleProtectedClick("/connections")}
+                          className="px-6 py-3 bg-orange-500 text-white font-semibold rounded-xl hover:bg-orange-600 transition shadow-md"
+                        >
+                          Join the Debate
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
 
-                {/* Go-Karting Story */}
-                <article className="reveal-on-scroll connection-story-card">
+                {/* F1 Community */}
+                <article className="reveal-on-scroll community-card">
                   <div className="relative rounded-2xl overflow-hidden mb-4 shadow-lg">
                     <Image
                       src="/go_karting.webp"
@@ -1093,15 +1190,23 @@ export default function Home() {
                       <div className="bg-green-50 p-3 rounded-lg border-l-4 border-green-400">
                         <p><strong>Payal:</strong> <em>&quot;And Fernando Alonso watches from a distance, amused by it all.&quot;</em></p>
                       </div>
-                      <p className="text-center font-semibold text-red-600 mt-4">
-                        Join the conversation - where do you stand in the Hamilton vs Verstappen debate?
-                      </p>
+                      <div className="mt-6 text-center">
+                        <p className="font-semibold text-red-600 mb-3">
+                          Join the conversation - where do you stand in the Hamilton vs Verstappen debate?
+                        </p>
+                        <button
+                          onClick={() => handleProtectedClick("/connections")}
+                          className="px-6 py-3 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 transition shadow-md"
+                        >
+                          Join the F1 Debate
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
 
-                {/* Shayari Story */}
-                <article className="reveal-on-scroll connection-story-card">
+                {/* Poetry Community */}
+                <article className="reveal-on-scroll community-card">
                   <div className="relative rounded-2xl overflow-hidden mb-4 shadow-lg">
                     <Image
                       src="/shayri.webp"
@@ -1135,81 +1240,20 @@ export default function Home() {
                       <div className="bg-indigo-50 p-3 rounded-lg border-l-4 border-indigo-400">
                         <p><strong>Adi:</strong> <em>&quot;Some lines don&apos;t just speak—they ignite. And these? These are fire.&quot;</em></p>
                       </div>
-                      <p className="text-center font-semibold text-purple-600 mt-4">
-                        Join the Shayari session
-                      </p>
+                      <div className="mt-6 text-center">
+                        <p className="font-semibold text-purple-600 mb-3">
+                          Join the Shayari session
+                        </p>
+                        <button
+                          onClick={() => handleProtectedClick("/connections")}
+                          className="px-6 py-3 bg-purple-500 text-white font-semibold rounded-xl hover:bg-purple-600 transition shadow-md"
+                        >
+                          Join Poetry Session
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </article>
-              </div>
-            </section>
-
-            {/* CONNECTIONS SECTION - Enhanced */}
-            <section className="relative z-10 w-full max-w-6xl mx-auto mt-16 px-4 scroll-animate slide-up">
-              <div className="text-center bg-gradient-to-br from-purple-50 via-pink-50 to-orange-50 rounded-3xl p-8 md:p-10 border border-purple-100 shadow-lg mb-12">
-                <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4">
-                  Connections Are Just the Beginning
-                </h2>
-                
-                <p className="text-lg text-slate-700 max-w-3xl mx-auto mb-6">
-                  We curate the hottest cafés, secret study spots, and hidden gems near campus - so you can go from chat to chill in seconds.
-                </p>
-
-                <div className="text-center mb-8">
-                  <h3 className="text-2xl font-bold text-slate-900 mb-6">Find Your Vibe. Find Your Tribe.</h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl mx-auto mb-8">
-                    <div className="bg-gradient-to-r from-red-50 to-orange-50 p-4 rounded-xl border border-red-200">
-                      <span className="text-lg">⚡️ <strong>Thrill-Seekers</strong></span>
-                      <p className="text-sm text-slate-600 mt-1">Go-karting • F1 • Bike crews</p>
-                    </div>
-                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-xl border border-green-200">
-                      <span className="text-lg">⚡️ <strong>Sports Buffs</strong></span>
-                      <p className="text-sm text-slate-600 mt-1">Football • Cricket • Gym squads</p>
-                    </div>
-                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-xl border border-purple-200">
-                      <span className="text-lg">⚡️ <strong>Culture Creators</strong></span>
-                      <p className="text-sm text-slate-600 mt-1">Foodie gangs • Shayari nights • Rap battles</p>
-                    </div>
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-200">
-                      <span className="text-lg">⚡️ <strong>Brainiacs</strong></span>
-                      <p className="text-sm text-slate-600 mt-1">Hackathons • Competitive coding</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-r from-yellow-50 to-amber-50 p-6 rounded-xl border border-yellow-200 mb-8">
-                    <h4 className="text-xl font-bold text-slate-900 mb-4">Your Campus Perks:</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                      <div className="flex items-start gap-3">
-                        <span className="text-green-500 font-bold text-lg">✅</span>
-                        <span className="text-slate-700">Exclusive student discounts (food, fun, shopping)</span>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <span className="text-green-500 font-bold text-lg">✅</span>
-                        <span className="text-slate-700">Perfectly vibe-matched spots (silent libraries • 24/7 study dens • lit food joints)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-r from-teal-50 to-cyan-50 p-6 rounded-xl border border-teal-200 mb-8">
-                    <div className="flex items-center justify-center gap-4 text-lg font-bold text-slate-900">
-                      <span className="bg-teal-100 px-3 py-2 rounded-full">1️⃣ Sign Up</span>
-                      <span className="text-teal-500">→</span>
-                      <span className="bg-teal-100 px-3 py-2 rounded-full">2️⃣ Video Chat</span>
-                      <span className="text-teal-500">→</span>
-                      <span className="bg-teal-100 px-3 py-2 rounded-full">3️⃣ Crew Up</span>
-                    </div>
-                    <p className="text-slate-600 mt-4">
-                      Make friends • Build groups • Join communities • Live your best campus life
-                    </p>
-                  </div>
-
-                  <div className="bg-gradient-to-r from-pink-100 to-purple-100 p-4 rounded-xl border border-pink-300">
-                    <p className="text-lg font-bold text-slate-900">
-                      Your tribe is waiting. Claim your spot now!
-                    </p>
-                  </div>
-                </div>
               </div>
             </section>
           </main>
