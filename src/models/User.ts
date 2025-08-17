@@ -5,7 +5,7 @@ export interface PaymentDetails {
   transactionId?: string;
   amount?: number;
   paymentDate?: Date;
-  paymentMethod?: string;
+  paymentMethod?: any; // full raw JSON allowed
 }
 
 export interface IUser extends Document {
@@ -27,7 +27,7 @@ const PaymentDetailsSchema = new Schema<PaymentDetails>(
     transactionId: { type: String },
     amount: { type: Number },
     paymentDate: { type: Date },
-    paymentMethod: { type: String },
+    paymentMethod: { type: Schema.Types.Mixed }, // allow any JSON
   },
   { _id: false }
 );

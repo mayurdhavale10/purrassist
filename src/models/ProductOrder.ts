@@ -6,8 +6,12 @@ const paymentHistorySchema = new Schema(
     transactionId: { type: String, index: true },
     amount: Number,
     paymentTime: Date,
-    paymentMethod: String, // card/upi/netbanking, etc.
-    status: String,        // SUCCESS | FAILED | USER_DROPPED | ...
+
+    // Accept ANY JSON; Cashfree may send nested objects (e.g., UPI details)
+    paymentMethod: Schema.Types.Mixed,   // could be string OR object
+    paymentPayload: Schema.Types.Mixed,  // store full raw `payment` object (as-is)
+
+    status: String, // SUCCESS | FAILED | USER_DROPPED | ...
   },
   { _id: false }
 );

@@ -48,9 +48,10 @@ export async function POST(req: Request) {
     const txId: string | undefined = paymentData?.cf_payment_id || paymentData?.payment_id || paymentData?.id;
     const paymentStatus: string = paymentData?.payment_status || orderData?.order_status || payload?.type || "";
 
-    const paymentAmount: number | undefined = Number(paymentData?.payment_amount || orderData?.order_amount || 0) || undefined;
-    const paymentTime: Date | undefined = paymentData?.payment_time ? new Date(paymentData.payment_time) : new Date();
-    const paymentMethod: string | undefined = paymentData?.payment_method || paymentData?.payment_group || paymentData?.payment_mode;
+    const paymentAmount: number | undefined =
+      Number(paymentData?.payment_amount || orderData?.order_amount || 0) || undefined;
+    const paymentTime: Date | undefined =
+      paymentData?.payment_time ? new Date(paymentData.payment_time) : new Date();
 
     if (!orderId) {
       console.error("[Webhook] Missing order_id in payload", payload);
@@ -65,8 +66,16 @@ export async function POST(req: Request) {
       {
         $set: {
           cfOrderId: cfOrderId || undefined,
-          status: isSuccess ? "PAID" : paymentStatus?.toUpperCase().includes("FAIL") ? "FAILED" : "ACTIVE",
-          paymentStatus: isSuccess ? "SUCCESS" : paymentStatus?.toUpperCase().includes("FAIL") ? "FAILED" : "PENDING",
+          status: isSuccess
+            ? "PAID"
+            : paymentStatus?.toUpperCase().includes("FAIL")
+            ? "FAILED"
+            : "ACTIVE",
+          paymentStatus: isSuccess
+            ? "SUCCESS"
+            : paymentStatus?.toUpperCase().includes("FAIL")
+            ? "FAILED"
+            : "PENDING",
         },
         ...(txId && {
           $push: {
@@ -74,7 +83,11 @@ export async function POST(req: Request) {
               transactionId: txId,
               amount: paymentAmount,
               paymentTime: paymentTime,
-              paymentMethod: paymentMethod,
+
+              // Store EXACTLY what Cashfree sent (no sanitizing):
+              paymentMethod: paymentData?.payment_method ?? paymentData,
+              paymentPayload: paymentData,
+
               status: paymentStatus,
             },
           },
@@ -105,11 +118,13 @@ export async function POST(req: Request) {
           {
             planType,
             planExpiry: new Date(now + 30 * 24 * 60 * 60 * 1000),
+
+            // Store the full raw payment JSON on the user as well
             paymentDetails: {
               transactionId: txId,
               amount: order.amount,
               paymentDate: paymentTime,
-              paymentMethod: paymentMethod,
+              paymentMethod: paymentData, // Mixed
             },
           },
           { new: true }
