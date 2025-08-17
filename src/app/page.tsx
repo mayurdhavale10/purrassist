@@ -2,9 +2,7 @@
 
 import { useSession, signIn } from "next-auth/react";
 import Image from "next/image";
-
 import Footer from "@/components/Footer";
-
 import PricingCards from "@/components/PricingCards";
 import { useEffect, useRef, useState } from "react";
 import GenderModal from "@/components/GenderModal";
@@ -71,7 +69,7 @@ export default function Home() {
   // --- Scroll reveal ---
   useEffect(() => {
     const cards = document.querySelectorAll<HTMLElement>(
-      ".reveal-on-scroll, .scroll-animate"
+      ".reveal-on-scroll, .scroll-animate, .how-it-works-card"
     );
     const io = new IntersectionObserver(
       (entries) => {
@@ -88,18 +86,529 @@ export default function Home() {
     return () => io.disconnect();
   }, []);
 
-  // Function to scroll to pricing section
-  const scrollToPricing = () => {
-    const pricingSection = document.querySelector('#pricing-section');
-    if (pricingSection) {
-      pricingSection.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
   return (
     <>
-      {/* Offer Ticker at the very top */}
-    
+      {/* Local CSS for marquee, cards, chat bubbles, reduced motion, and Circular Steps */}
+      <style jsx>{`
+        /* Circular Steps Design */
+        .step-circle-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          position: relative;
+          opacity: 0;
+          transform: translateY(30px) scale(0.95);
+          animation: stepReveal 1s ease-out forwards;
+        }
+        
+        .step-circle-container:nth-child(1) {
+          animation-delay: 0.2s;
+        }
+        .step-circle-container:nth-child(2) {
+          animation-delay: 0.6s;
+        }
+        .step-circle-container:nth-child(3) {
+          animation-delay: 1s;
+        }
+
+        @keyframes stepReveal {
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        .step-circle {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          position: relative;
+          cursor: pointer;
+          transition: all 0.4s ease;
+        }
+
+        .step-circle:hover {
+          transform: translateY(-8px);
+        }
+
+        /* Main circular container */
+        .step-main-circle {
+          width: 160px;
+          height: 160px;
+          border-radius: 50%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+          backdrop-filter: blur(20px);
+          transition: all 0.4s ease;
+          overflow: visible;
+          margin-bottom: 24px;
+          border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .step-circle:hover .step-main-circle {
+          transform: scale(1.05);
+          box-shadow: 0 6px 28px rgba(0,0,0,0.15);
+        }
+
+        /* Animated outer ring */
+        .step-ring {
+          position: absolute;
+          top: -8px;
+          left: -8px;
+          width: 176px;
+          height: 176px;
+          border-radius: 50%;
+          border: 2px solid transparent;
+          animation: ringPulse 4s ease-in-out infinite;
+          pointer-events: none;
+        }
+
+        .step-ring-1 {
+          border-color: rgba(59, 130, 246, 0.3);
+          animation-delay: 0s;
+        }
+        .step-ring-2 {
+          border-color: rgba(236, 72, 153, 0.3);
+          animation-delay: 1.3s;
+        }
+        .step-ring-3 {
+          border-color: rgba(20, 184, 166, 0.3);
+          animation-delay: 2.6s;
+        }
+
+        @keyframes ringPulse {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 0.2;
+          }
+          50% {
+            transform: scale(1.08);
+            opacity: 0.6;
+          }
+        }
+
+        /* Step number */
+        .step-number {
+          position: absolute;
+          top: 6px;
+          right: 6px;
+          width: 24px;
+          height: 24px;
+          background: rgba(255, 255, 255, 0.95);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+          font-size: 12px;
+          color: #1e293b;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+          backdrop-filter: blur(10px);
+          z-index: 2;
+        }
+
+        /* Step icon */
+        .step-icon {
+          margin-bottom: 8px;
+          filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
+        }
+
+        /* Google logo in circle */
+        .google-logo-circle {
+          display: flex;
+          gap: 1px;
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .google-letter {
+          transition: all 0.3s ease;
+          animation: letterFloat 2s ease-in-out infinite;
+        }
+
+        .google-letter:hover {
+          transform: scale(1.3) translateY(-4px);
+        }
+
+        @keyframes letterFloat {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2px); }
+        }
+
+        /* Icon animations */
+        .pulse-icon {
+          animation: iconPulse 2s ease-in-out infinite;
+        }
+
+        .bounce-icon {
+          animation: iconBounce 2s ease-in-out infinite;
+        }
+
+        @keyframes iconPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.15); }
+        }
+
+        @keyframes iconBounce {
+          0%, 100% { transform: translateY(0); }
+          25% { transform: translateY(-4px); }
+          75% { transform: translateY(2px); }
+        }
+
+        /* Step content */
+        .step-content {
+          text-align: center;
+          max-width: 240px;
+          padding: 0 16px;
+        }
+
+        .step-title {
+          font-size: 1.5rem;
+          font-weight: 700;
+          color: #1e293b;
+          margin-bottom: 8px;
+          line-height: 1.3;
+        }
+
+        .step-description {
+          color: #64748b;
+          line-height: 1.5;
+          margin-bottom: 8px;
+          font-size: 1rem;
+        }
+
+        .step-highlight {
+          font-weight: 600;
+          font-size: 0.9rem;
+          display: block;
+        }
+
+        /* Connecting lines between steps (desktop) */
+        .step-connector {
+          position: absolute;
+          top: 80px;
+          right: -60px;
+          width: 80px;
+          height: 2px;
+          background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.4), transparent);
+          animation: lineGlow 4s ease-in-out infinite;
+        }
+
+        .step-connector::after {
+          content: '';
+          position: absolute;
+          right: -6px;
+          top: -3px;
+          width: 0;
+          height: 0;
+          border-left: 8px solid rgba(148, 163, 184, 0.4);
+          border-top: 4px solid transparent;
+          border-bottom: 4px solid transparent;
+          animation: arrowGlow 4s ease-in-out infinite;
+        }
+
+        .step-connector-1 {
+          animation-delay: 0.7s;
+        }
+        .step-connector-2 {
+          animation-delay: 2s;
+        }
+
+        @keyframes lineGlow {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.7; }
+        }
+
+        @keyframes arrowGlow {
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.7; }
+        }
+
+        /* Mobile responsiveness */
+        @media (max-width: 1024px) {
+          .step-main-circle {
+            width: 140px;
+            height: 140px;
+          }
+          
+          .step-ring {
+            width: 156px;
+            height: 156px;
+            top: -8px;
+            left: -8px;
+          }
+          
+          .step-title {
+            font-size: 1.3rem;
+          }
+          
+          .step-description {
+            font-size: 0.95rem;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .step-main-circle {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 20px;
+          }
+          
+          .step-ring {
+            width: 136px;
+            height: 136px;
+            top: -8px;
+            left: -8px;
+          }
+          
+          .step-icon span {
+            font-size: 2.5rem !important;
+          }
+          
+          .step-title {
+            font-size: 1.2rem;
+          }
+          
+          .step-description {
+            font-size: 0.9rem;
+          }
+          
+          .step-content {
+            max-width: 200px;
+          }
+          
+          .google-logo-circle {
+            font-size: 12px;
+          }
+        }
+
+        /* Connection story cards */
+        .connection-story-card {
+          opacity: 0;
+          transform: translateY(30px);
+          transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+        .connection-story-card.in-view {
+          opacity: 1;
+          transform: translateY(0);
+        }
+        .connection-story-card:hover {
+          transform: translateY(-8px);
+          transition: transform 0.3s ease;
+        }
+
+        .marquee {
+          position: absolute;
+          top: 0;
+          left: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          animation: marquee 18s linear infinite;
+          will-change: transform;
+          font-size: 0.95rem;
+        }
+        @keyframes marquee {
+          0% {
+            transform: translateX(0);
+          }
+          100% {
+            transform: translateX(-50%);
+          }
+        }
+
+        /* Card base styles + hover animation */
+        .card-base {
+          position: relative;
+          border-radius: 1rem;
+          padding: 1.25rem;
+          box-shadow: 0 4px 16px rgba(2, 6, 23, 0.06);
+          transition: transform 220ms ease, box-shadow 220ms ease,
+            background-color 220ms ease;
+          overflow: hidden;
+        }
+        .card-base:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 10px 24px rgba(2, 6, 23, 0.12);
+        }
+
+        /* Hero animations */
+        .animate-fade-in-up {
+          opacity: 0;
+          transform: translateY(20px);
+          animation: fadeInUp 0.8s ease-out forwards;
+        }
+        .animation-delay-200 {
+          animation-delay: 0.2s;
+        }
+        .animation-delay-400 {
+          animation-delay: 0.4s;
+        }
+        .animation-delay-600 {
+          animation-delay: 0.6s;
+        }
+        .animation-delay-800 {
+          animation-delay: 0.8s;
+        }
+
+        @keyframes fadeInUp {
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        /* Animated accent blob inside each card */
+        .card-accent {
+          position: absolute;
+          inset: auto -40% -40% auto;
+          width: 200px;
+          height: 200px;
+          border-radius: 9999px;
+          filter: blur(28px);
+          opacity: 0.25;
+          animation: floaty 6s ease-in-out infinite;
+          pointer-events: none;
+        }
+        .card-accent.teal {
+          background: #5eead4;
+        } /* teal-300 */
+        .card-accent.pink {
+          background: #f9a8d4;
+        } /* pink-300 */
+        .card-accent.yellow {
+          background: #fde68a;
+        } /* yellow-300 */
+
+        @keyframes floaty {
+          0% {
+            transform: translate(0, 0) scale(1);
+          }
+          50% {
+            transform: translate(-12px, -10px) scale(1.05);
+          }
+          100% {
+            transform: translate(0, 0) scale(1);
+          }
+        }
+
+        /* Scroll animations */
+        .scroll-animate {
+          opacity: 0;
+          transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+        .scroll-animate.in-view {
+          opacity: 1;
+        }
+
+        /* Animation variants */
+        .slide-up {
+          transform: translateY(40px);
+        }
+        .slide-up.in-view {
+          transform: translateY(0);
+        }
+
+        .slide-left {
+          transform: translateX(-40px);
+        }
+        .slide-left.in-view {
+          transform: translateX(0);
+        }
+
+        .slide-right {
+          transform: translateX(40px);
+        }
+        .slide-right.in-view {
+          transform: translateX(0);
+        }
+
+        .fade-in {
+          transform: scale(0.95);
+        }
+        .fade-in.in-view {
+          transform: scale(1);
+        }
+
+        /* Staggered animations for cards */
+        .reveal-on-scroll:nth-child(1) {
+          transition-delay: 0ms;
+        }
+        .reveal-on-scroll:nth-child(2) {
+          transition-delay: 150ms;
+        }
+        .reveal-on-scroll:nth-child(3) {
+          transition-delay: 300ms;
+        }
+
+        /* Chat bubbles (WhatsApp-like) */
+        .chat-bubble {
+          max-width: min(92vw, 22rem);
+          border-radius: 1rem;
+          padding: 0.5rem;
+          box-shadow: 0 1px 2px rgba(2, 6, 23, 0.08);
+          position: relative;
+        }
+        .bubble-left {
+          background: #ffffff; /* receiver bubble */
+          border: 1px solid rgba(0, 0, 0, 0.06);
+        }
+        .bubble-right {
+          background: #dcf8c6; /* classic WhatsApp green */
+          border: 1px solid rgba(0, 0, 0, 0.06);
+        }
+        /* subtle tails */
+        .bubble-left::after {
+          content: "";
+          position: absolute;
+          left: -6px;
+          bottom: 10px;
+          border-width: 6px 6px 6px 0;
+          border-style: solid;
+          border-color: transparent #ffffff transparent transparent;
+          filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.06));
+        }
+        .bubble-right::after {
+          content: "";
+          position: absolute;
+          right: -6px;
+          bottom: 10px;
+          border-width: 6px 0 6px 6px;
+          border-style: solid;
+          border-color: transparent transparent transparent #dcf8c6;
+          filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.06));
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .marquee {
+            animation: none !important;
+            white-space: normal;
+            position: static;
+          }
+          .card-base,
+          .reveal-on-scroll,
+          .animate-fade-in-up,
+          .scroll-animate,
+          .step-circle-container {
+            transition: none !important;
+            animation: none !important;
+            opacity: 1 !important;
+            transform: none !important;
+          }
+          .card-accent,
+          .step-ring,
+          .pulse-icon,
+          .bounce-icon,
+          .google-letter,
+          .step-connector {
+            animation: none !important;
+          }
+        }
+      `}</style>
 
       {/* Background audio */}
       <audio
@@ -133,81 +642,9 @@ export default function Home() {
           {isMuted ? "🔊 Unmute" : "🔇 Mute"}
         </button>
 
-
-
-        {/* Freedom Sale Tricolor Offer Marquee - Updated */}
-        <div className="relative w-full h-18 overflow-hidden cursor-pointer" onClick={scrollToPricing}>
-          {/* Animated tricolor background with blur effect */}
-          <div className="absolute inset-0 flex flex-col backdrop-blur-md">
-            <div className="flex-1 bg-gradient-to-r from-orange-400/80 via-orange-500/70 to-orange-600/80"></div>
-            <div className="flex-1 bg-gradient-to-r from-white/90 via-gray-100/80 to-white/90"></div>
-            <div className="flex-1 bg-gradient-to-r from-green-500/80 via-green-600/70 to-green-700/80"></div>
-          </div>
-
-          {/* Glass overlay for glassmorphism effect */}
-          <div className="absolute inset-0 bg-white/10 backdrop-blur-sm border-t border-white/20 shadow-lg"></div>
-
-          {/* Floating particles effect */}
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="floating-particle particle-1"></div>
-            <div className="floating-particle particle-2"></div>
-            <div className="floating-particle particle-3"></div>
-            <div className="floating-particle particle-4"></div>
-          </div>
-
-          {/* Chakra (wheel) in the center with glass effect */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-12 h-12 rounded-full border-2 border-blue-800/70 bg-white/20 backdrop-blur-md flex items-center justify-center shadow-lg">
-              <div className="text-blue-900 text-xl font-bold drop-shadow-sm">⚡</div>
-            </div>
-          </div>
-
-          {/* Updated Marquee content overlay */}
-          <div className="absolute inset-0 flex items-center">
-            <div className="tricolor-marquee whitespace-nowrap flex items-center">
-              <span className="marquee-item">
-                🇮🇳 <strong>FREEDOM SALE ENDS SOON:</strong> FREE Basic Access + Premium VIP at ₹169 only! 
-              </span>
-              <span className="marquee-item">
-                🎯 <strong>Today Only:</strong> Lock in Premium features forever at 90% OFF! 
-              </span>
-              <span className="marquee-item">
-                ⚡ <strong>Exclusive:</strong> Boys Mode • Girls Mode • Multi-campus • All at Freedom Sale prices! 
-              </span>
-              <span className="marquee-item">
-                🔥 <strong>Hurry:</strong> Sale ends at midnight - Basic ₹69, Premium ₹169. Get VIP access now! 
-              </span>
-              <span className="marquee-item">
-                🇮🇳 <strong>Jai Hind:</strong> Connect with verified students across India - your campus awaits! 
-              </span>
-              
-              {/* Duplicate for seamless loop */}
-              <span className="marquee-item">
-                🇮🇳 <strong>FREEDOM SALE ENDS SOON:</strong> FREE Basic Access + Premium VIP at ₹169 only! 
-              </span>
-              <span className="marquee-item">
-                🎯 <strong>Today Only:</strong> Lock in Premium features forever at 90% OFF! 
-              </span>
-              <span className="marquee-item">
-                ⚡ <strong>Exclusive:</strong> Boys Mode • Girls Mode • Multi-campus • All at Freedom Sale prices! 
-              </span>
-              <span className="marquee-item">
-                🔥 <strong>Hurry:</strong> Sale ends at midnight - Basic ₹69, Premium ₹169. Get VIP access now! 
-              </span>
-              <span className="marquee-item">
-                🇮🇳 <strong>Jai Hind:</strong> Connect with verified students across India - your campus awaits! 
-              </span>
-            </div>
-          </div>
-
-          {/* Enhanced gradient edges with glass effect */}
-          <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-white/40 via-white/20 to-transparent backdrop-blur-sm pointer-events-none"></div>
-          <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-white/40 via-white/20 to-transparent backdrop-blur-sm pointer-events-none"></div>
-        </div>
-
         {/* Main content - Always show unless explicitly hidden */}
         {showContent && (
-          <main className="min-h-[calc(100vh-5rem)] w-full flex flex-col items-center justify-start relative overflow-hidden pt-24 md:pt-28">
+          <main className="min-h-[calc(100vh-5rem)] w-full flex flex-col items-center justify-start relative overflow-hidden pt-8">
             {/* Soft multi-color aura behind the logo */}
             <div className="pointer-events-none absolute inset-0 flex items-start justify-center pt-20">
               <div className="h-[30rem] w-[30rem] rounded-full blur-3xl opacity-40 bg-teal-300 absolute" />
@@ -226,6 +663,118 @@ export default function Home() {
                 priority
                 className="w-56 h-56 md:w-72 md:h-72 lg:w-80 lg:h-80 object-contain drop-shadow-xl animate-fade-in-up"
               />
+
+              {/* How It Works Section - Circular Step Design */}
+              <section className="relative w-full py-16 mt-20">
+                <div className="max-w-7xl mx-auto px-4">
+                  {/* Circular Step Layout */}
+                  <div className="relative flex flex-col lg:flex-row items-center justify-center gap-8 lg:gap-16">
+                    
+                    {/* Step 1: Verified Login */}
+                    <div className="step-circle-container relative">
+                      <div className="step-circle group" data-step="1">
+                        {/* Outer animated ring */}
+                        <div className="step-ring step-ring-1"></div>
+                        
+                        {/* Main circle */}
+                        <div className="step-main-circle bg-gradient-to-br from-blue-400 to-blue-600">
+                          <div className="step-number">1</div>
+                          <div className="step-icon">
+                            <span className="text-4xl">🔐</span>
+                          </div>
+                          
+                          {/* Google logo in circle */}
+                          <div className="google-logo-circle">
+                            {['G','o','o','g','l','e'].map((char, i) => (
+                              <span 
+                                key={i} 
+                                className="google-letter"
+                                style={{
+                                  color: ['#4285F4','#EA4335','#FBBC05','#4285F4','#34A853','#EA4335'][i],
+                                  animationDelay: `${i * 0.1}s`
+                                }}
+                              >
+                                {char}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {/* Step content */}
+                        <div className="step-content">
+                          <h3 className="step-title">Verified Login</h3>
+                          <p className="step-description">
+                            Use your college email—no outsiders allowed!
+                          </p>
+                          <span className="step-highlight text-blue-600">
+                            100% verified students only
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Connecting line to next step (desktop only) */}
+                      <div className="step-connector step-connector-1 hidden lg:block"></div>
+                    </div>
+
+                    {/* Step 2: Go Live */}
+                    <div className="step-circle-container relative">
+                      <div className="step-circle group" data-step="2">
+                        {/* Outer animated ring */}
+                        <div className="step-ring step-ring-2"></div>
+                        
+                        {/* Main circle */}
+                        <div className="step-main-circle bg-gradient-to-br from-pink-400 to-red-500">
+                          <div className="step-number">2</div>
+                          <div className="step-icon">
+                            <span className="text-4xl pulse-icon">🎥</span>
+                          </div>
+                        </div>
+                        
+                        {/* Step content */}
+                        <div className="step-content">
+                          <h3 className="step-title">Go Live in 1 Tap</h3>
+                          <p className="step-description">
+                            Meet students who actually get your vibe!
+                          </p>
+                          <span className="step-highlight text-pink-600">
+                            Instant video connections
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Connecting line to next step (desktop only) */}
+                      <div className="step-connector step-connector-2 hidden lg:block"></div>
+                    </div>
+
+                    {/* Step 3: Build Squad */}
+                    <div className="step-circle-container relative">
+                      <div className="step-circle group" data-step="3">
+                        {/* Outer animated ring */}
+                        <div className="step-ring step-ring-3"></div>
+                        
+                        {/* Main circle */}
+                        <div className="step-main-circle bg-gradient-to-br from-teal-400 to-green-500">
+                          <div className="step-number">3</div>
+                          <div className="step-icon">
+                            <span className="text-4xl bounce-icon">🤝</span>
+                          </div>
+                        </div>
+                        
+                        {/* Step content */}
+                        <div className="step-content">
+                          <h3 className="step-title">Build Your Squad</h3>
+                          <p className="step-description">
+                            From lab partners to gym buddies—find your people!
+                          </p>
+                          <span className="step-highlight text-teal-600">
+                            Create lasting connections
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
               <h1 className="mt-6 text-center text-2xl md:text-3xl font-extrabold tracking-tight animate-fade-in-up animation-delay-200">
                 <span className="text-teal-600">
@@ -668,307 +1217,6 @@ export default function Home() {
 
         <Footer />
       </div>
-
-      {/* Local CSS for marquee, cards, chat bubbles, reduced motion */}
-      <style jsx>{`
-        /* Connection story cards */
-        .connection-story-card {
-          opacity: 0;
-          transform: translateY(30px);
-          transition: opacity 0.8s ease, transform 0.8s ease;
-        }
-        .connection-story-card.in-view {
-          opacity: 1;
-          transform: translateY(0);
-        }
-        .connection-story-card:hover {
-          transform: translateY(-8px);
-          transition: transform 0.3s ease;
-        }
-
-        /* Enhanced glassmorphism tricolor marquee styles */
-        .tricolor-marquee {
-          animation: tricolorMove 45s linear infinite;
-          display: flex;
-          will-change: transform;
-          font-size: 1rem;
-          font-weight: 600;
-          text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        
-        .marquee-item {
-          flex-shrink: 0;
-          display: inline-flex;
-          align-items: center;
-          padding: 0 3rem;
-          color: #1e293b;
-          background: rgba(255, 255, 255, 0.1);
-          backdrop-filter: blur(4px);
-          margin: 0 0.5rem;
-          border-radius: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .floating-particle {
-          position: absolute;
-          width: 6px;
-          height: 6px;
-          background: radial-gradient(circle, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.2) 100%);
-          border-radius: 50%;
-          animation: float 8s ease-in-out infinite;
-        }
-        
-        .particle-1 {
-          top: 20%;
-          left: 10%;
-          animation-delay: 0s;
-          animation-duration: 6s;
-        }
-        
-        .particle-2 {
-          top: 70%;
-          left: 30%;
-          animation-delay: 2s;
-          animation-duration: 8s;
-        }
-        
-        .particle-3 {
-          top: 40%;
-          left: 70%;
-          animation-delay: 4s;
-          animation-duration: 7s;
-        }
-        
-        .particle-4 {
-          top: 80%;
-          left: 90%;
-          animation-delay: 1s;
-          animation-duration: 9s;
-        }
-        
-        @keyframes float {
-          0%, 100% { 
-            transform: translateY(0) scale(1);
-            opacity: 0.7;
-          }
-          50% { 
-            transform: translateY(-10px) scale(1.2);
-            opacity: 1;
-          }
-        }
-        
-        @keyframes tricolorMove {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
-        }
-        
-        .tricolor-marquee:hover {
-          animation-play-state: paused;
-        }
-
-        .marquee {
-          position: absolute;
-          top: 0;
-          left: 0;
-          display: inline-flex;
-          align-items: center;
-          gap: 0.5rem;
-          animation: marquee 18s linear infinite;
-          will-change: transform;
-          font-size: 0.95rem;
-        }
-        @keyframes marquee {
-          0% {
-            transform: translateX(0);
-          }
-          100% {
-            transform: translateX(-50%);
-          }
-        }
-
-        /* Card base styles + hover animation */
-        .card-base {
-          position: relative;
-          border-radius: 1rem;
-          padding: 1.25rem;
-          box-shadow: 0 4px 16px rgba(2, 6, 23, 0.06);
-          transition: transform 220ms ease, box-shadow 220ms ease,
-            background-color 220ms ease;
-          overflow: hidden;
-        }
-        .card-base:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 10px 24px rgba(2, 6, 23, 0.12);
-        }
-
-        /* Hero animations */
-        .animate-fade-in-up {
-          opacity: 0;
-          transform: translateY(20px);
-          animation: fadeInUp 0.8s ease-out forwards;
-        }
-        .animation-delay-200 {
-          animation-delay: 0.2s;
-        }
-        .animation-delay-400 {
-          animation-delay: 0.4s;
-        }
-        .animation-delay-600 {
-          animation-delay: 0.6s;
-        }
-        .animation-delay-800 {
-          animation-delay: 0.8s;
-        }
-
-        @keyframes fadeInUp {
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        /* Animated accent blob inside each card */
-        .card-accent {
-          position: absolute;
-          inset: auto -40% -40% auto;
-          width: 200px;
-          height: 200px;
-          border-radius: 9999px;
-          filter: blur(28px);
-          opacity: 0.25;
-          animation: floaty 6s ease-in-out infinite;
-          pointer-events: none;
-        }
-        .card-accent.teal {
-          background: #5eead4;
-        } /* teal-300 */
-        .card-accent.pink {
-          background: #f9a8d4;
-        } /* pink-300 */
-        .card-accent.yellow {
-          background: #fde68a;
-        } /* yellow-300 */
-
-        @keyframes floaty {
-          0% {
-            transform: translate(0, 0) scale(1);
-          }
-          50% {
-            transform: translate(-12px, -10px) scale(1.05);
-          }
-          100% {
-            transform: translate(0, 0) scale(1);
-          }
-        }
-
-        /* Scroll animations */
-        .scroll-animate {
-          opacity: 0;
-          transition: opacity 0.8s ease, transform 0.8s ease;
-        }
-        .scroll-animate.in-view {
-          opacity: 1;
-        }
-
-        /* Animation variants */
-        .slide-up {
-          transform: translateY(40px);
-        }
-        .slide-up.in-view {
-          transform: translateY(0);
-        }
-
-        .slide-left {
-          transform: translateX(-40px);
-        }
-        .slide-left.in-view {
-          transform: translateX(0);
-        }
-
-        .slide-right {
-          transform: translateX(40px);
-        }
-        .slide-right.in-view {
-          transform: translateX(0);
-        }
-
-        .fade-in {
-          transform: scale(0.95);
-        }
-        .fade-in.in-view {
-          transform: scale(1);
-        }
-
-        /* Staggered animations for cards */
-        .reveal-on-scroll:nth-child(1) {
-          transition-delay: 0ms;
-        }
-        .reveal-on-scroll:nth-child(2) {
-          transition-delay: 150ms;
-        }
-        .reveal-on-scroll:nth-child(3) {
-          transition-delay: 300ms;
-        }
-
-        /* Chat bubbles (WhatsApp-like) */
-        .chat-bubble {
-          max-width: min(92vw, 22rem);
-          border-radius: 1rem;
-          padding: 0.5rem;
-          box-shadow: 0 1px 2px rgba(2, 6, 23, 0.08);
-          position: relative;
-        }
-        .bubble-left {
-          background: #ffffff; /* receiver bubble */
-          border: 1px solid rgba(0, 0, 0, 0.06);
-        }
-        .bubble-right {
-          background: #dcf8c6; /* classic WhatsApp green */
-          border: 1px solid rgba(0, 0, 0, 0.06);
-        }
-        /* subtle tails */
-        .bubble-left::after {
-          content: "";
-          position: absolute;
-          left: -6px;
-          bottom: 10px;
-          border-width: 6px 6px 6px 0;
-          border-style: solid;
-          border-color: transparent #ffffff transparent transparent;
-          filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.06));
-        }
-        .bubble-right::after {
-          content: "";
-          position: absolute;
-          right: -6px;
-          bottom: 10px;
-          border-width: 6px 0 6px 6px;
-          border-style: solid;
-          border-color: transparent transparent transparent #dcf8c6;
-          filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.06));
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .marquee,
-          .tricolor-marquee {
-            animation: none !important;
-            white-space: normal;
-            position: static;
-          }
-          .card-base,
-          .reveal-on-scroll,
-          .animate-fade-in-up,
-          .scroll-animate {
-            transition: none !important;
-            animation: none !important;
-            opacity: 1 !important;
-            transform: none !important;
-          }
-          .card-accent {
-            animation: none !important;
-          }
-        }
-      `}</style>
     </>
   );
 }

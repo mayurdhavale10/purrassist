@@ -23,6 +23,20 @@ export default function Footer() {
             <p className="text-[#475569] text-sm leading-relaxed mb-6">
               Verified college video chat connecting real students for authentic conversations. No bots, no creeps—just genuine connections.
             </p>
+            
+            {/* Contact Info */}
+            <div className="mb-6">
+              <p className="text-[#475569] text-sm mb-2">
+                <span className="font-medium">Email:</span> purrassist@gmail.com
+              </p>
+              <p className="text-[#475569] text-sm mb-1">
+                <span className="font-medium">Business Enquiry:</span>
+              </p>
+              <p className="text-[#475569] text-sm">
+                +91 93726 52742 | +91 75248 64876
+              </p>
+            </div>
+
             <div className="flex gap-4">
               {/* Facebook */}
               <a href="#" className="w-10 h-10 bg-white hover:bg-[#0F766E] rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border border-[#CBD5E1] hover:text-white group">
@@ -31,7 +45,7 @@ export default function Footer() {
                 </svg>
               </a>
               {/* Instagram */}
-              <a href="#" className="w-10 h-10 bg-white hover:bg-[#0F766E] rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border border-[#CBD5E1] hover:text-white group">
+              <a href="https://www.instagram.com/purrassist?igsh=MXdwbGlrYm83dWNwNQ==" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white hover:bg-[#0F766E] rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border border-[#CBD5E1] hover:text-white group">
                 <svg className="w-5 h-5 text-[#0F766E] group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 6.62 5.367 11.987 11.988 11.987c6.62 0 11.987-5.367 11.987-11.987C24.014 5.367 18.637.001 12.017.001zM8.449 16.988c-1.297 0-2.448-.73-3.016-1.797L3.43 16.988c.568 1.067 1.719 1.797 3.016 1.797h7.102c1.297 0 2.448-.73 3.016-1.797l2.003-1.797c-.568 1.067-1.719 1.797-3.016 1.797H8.449z"/>
                   <path d="M12 7.056c-2.731 0-4.944 2.213-4.944 4.944S9.269 16.944 12 16.944s4.944-2.213 4.944-4.944S14.731 7.056 12 7.056zm0 8.167c-1.775 0-3.222-1.447-3.222-3.222S10.225 8.778 12 8.778s3.222 1.447 3.222 3.222-1.447 3.223-3.222 3.223z"/>
