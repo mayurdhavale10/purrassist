@@ -7,7 +7,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 export default function Navbar() {
   const { data: session, status } = useSession();
 
-  // Helper: handle protected navigation
+  // Helper: handle protected navigationn
   const handleProtectedClick = (path: string) => {
     if (!session) {
       signIn("google", { callbackUrl: path }); // redirect to login, then back
