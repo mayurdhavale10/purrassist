@@ -53,7 +53,7 @@ const ICE_SERVERS: RTCConfiguration["iceServers"] = [
 export default function VideoPageClient() {
   const { data: session, status } = useSession();
 
-  // Refss
+  // Refsss
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
