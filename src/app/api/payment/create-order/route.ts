@@ -5,7 +5,7 @@ import ProductOrder from "@/models/ProductOrder";
 
 const PLANS = {
   free:    { name: "Basic Free",        price: 0,   planType: "free" },
-  basic:   { name: "Basic All-Colleges", price: 69,  planType: "intercollege" },
+  basic:   { name: "Basic All-Colleges", price: 1,  planType: "intercollege" },
   premium: { name: "Premium Ultimate",   price: 169, planType: "gender" },
 } as const;
 
