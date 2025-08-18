@@ -42,7 +42,8 @@ type UserPlan = {
   };
 };
 
-const SOCKET_URL = "omaglewebsocket-production.up.railway.app";
+// IMPORTANT: explicit https to avoid mixed content / auto-protocol issues
+const SOCKET_URL = "https://omaglewebsocket-production.up.railway.app";
 
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -59,6 +60,7 @@ export default function VideoPageClient() {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const lastRemoteStreamRef = useRef<MediaStream | null>(null);
   const candidateBufferRef = useRef<RTCIceCandidateInit[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -86,16 +88,13 @@ export default function VideoPageClient() {
   const [pendingStart, setPendingStart] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // --- keep latest values without re-running socket effect ---
+  // keep latest values for effects
   const showVideoRef = useRef(showVideo);
   useEffect(() => { showVideoRef.current = showVideo; }, [showVideo]);
-
   const selectedMatchingOptionRef = useRef(selectedMatchingOption);
   useEffect(() => { selectedMatchingOptionRef.current = selectedMatchingOption; }, [selectedMatchingOption]);
-
   const pendingStartRef = useRef(pendingStart);
   useEffect(() => { pendingStartRef.current = pendingStart; }, [pendingStart]);
-  // -----------------------------------------------------------
 
   // Detect mobile/tablet
   useEffect(() => {
@@ -108,7 +107,7 @@ export default function VideoPageClient() {
   // Auto-scroll chat only when new messages arrive, not when typing
   useEffect(() => {
     if (!isTyping) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isTyping]);
 
   // Toast auto-hide
   useEffect(() => {
@@ -117,7 +116,7 @@ export default function VideoPageClient() {
     return () => clearTimeout(t);
   }, [showToast]);
 
-  // Fetch user plan after session ready
+  // Fetch user plan after session ready (unchanged login/auth flow)
   useEffect(() => {
     if (status === "loading") return;
 
@@ -130,6 +129,7 @@ export default function VideoPageClient() {
     if (session?.user?.email) {
       fetchUserPlan();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, status]);
 
   const fetchUserPlan = async () => {
@@ -138,10 +138,11 @@ export default function VideoPageClient() {
       const res = await fetch("/api/user/me");
       if (!res.ok) throw new Error("Failed to fetch user plan");
       const planData: UserPlan = await res.json();
-      setUserPlan(planData);
 
       const matchingOptions = generateMatchingOptions(planData);
-      setUserPlan({ ...planData, matchingOptions });
+      const merged: UserPlan = { ...planData, matchingOptions };
+      setUserPlan(merged);
+
       const firstEnabled = matchingOptions.find((opt) => !opt.disabled);
       if (firstEnabled) setSelectedMatchingOption(firstEnabled.type);
 
@@ -192,14 +193,50 @@ export default function VideoPageClient() {
     return options;
   };
 
-  // Camera lifecycle
+  // --- Camera lifecycle & toggle handling (FIXED) ---
   useEffect(() => {
-    if (showVideo) initializeCamera();
-    else stopCamera();
+    (async () => {
+      if (showVideo) {
+        // enable existing tracks if we already have a stream
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach((t) => (t.enabled = true));
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = localStreamRef.current;
+            localVideoRef.current.play().catch(() => {});
+          }
+          // if matched but pc not started yet, start now
+          if (isConnected && partnerId && role && !pcRef.current) {
+            await startPeer(partnerId, role);
+          }
+          // IMPORTANT: Restore remote video if we have it saved
+          if (lastRemoteStreamRef.current && remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = lastRemoteStreamRef.current;
+            remoteVideoRef.current.play().catch(() => {});
+          }
+          return;
+        }
+        // otherwise grab media now
+        await initializeCamera();
+        if (isConnected && partnerId && role && !pcRef.current) {
+          await startPeer(partnerId, role);
+        }
+      } else {
+        // do NOT stop the camera; simply disable tracks to avoid renegotiation and "washed" remote
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach((t) => (t.enabled = false));
+        }
+        // Hide local video but keep remote visible in UI
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = null;
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showVideo]);
 
   const initializeCamera = async () => {
     try {
+      // close any previous tracks cleanly
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -210,8 +247,8 @@ export default function VideoPageClient() {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        // Mirror fix: original orientation
-        localVideoRef.current.style.transform = "none";
+        // FIXED: Mirror the local video for natural preview (scaleX(-1))
+        localVideoRef.current.style.transform = "scaleX(-1)";
         localVideoRef.current.play().catch(() => {});
       }
       setStatusMessage("Camera ready. Choose your matching preference and click 'Start'...");
@@ -222,19 +259,29 @@ export default function VideoPageClient() {
     }
   };
 
-  const stopCamera = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
-      localStreamRef.current = null;
-    }
-    if (localVideoRef.current) localVideoRef.current.srcObject = null;
-  };
-
-  // SOCKET — keep stable (do not depend on showVideo/selected option)
+  // Only stop camera on component unmount
   useEffect(() => {
-    if (!userPlan || !session?.user?.email) return;
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+      }
+    };
+  }, []);
 
-    const socket = io(SOCKET_URL, { transports: ["websocket"] });
+  // --- SOCKET: stable; explicit https; no camera stop in cleanup ---
+  useEffect(() => {
+    if (!session?.user?.email) return;
+
+    const socket = io(SOCKET_URL, {
+      transports: ["websocket"],
+      path: "/socket.io",
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      timeout: 10000,
+      withCredentials: false,
+    });
+
     socketRef.current = socket;
 
     socket.on("connect", () => {
@@ -243,6 +290,11 @@ export default function VideoPageClient() {
         socket.emit("registerUser", { email: session.user!.email! });
         setHasEmittedRegister(true);
       }
+    });
+
+    socket.on("connect_error", (err) => {
+      console.error("Socket connect_error:", err);
+      setStatusMessage("Connection problem. Retrying…");
     });
 
     socket.on("registrationSuccess", () => {
@@ -270,7 +322,7 @@ export default function VideoPageClient() {
       setStatusMessage("Looking for someone you can chat with...");
       setIsConnected(false);
       setMessages([]);
-      teardownPeer();
+      teardownPeer(); // remote only
       setPartnerId(null);
       setRole(null);
     });
@@ -347,13 +399,13 @@ export default function VideoPageClient() {
     return () => {
       socket.disconnect();
       socketRef.current = null;
-      teardownPeer();
-      stopCamera();
+      teardownPeer(); // remote only
+      // Do NOT stopCamera here; that was causing the 2–3s drop before.
       setIsRegistered(false);
       setHasEmittedRegister(false);
       setPendingStart(false);
     };
-  }, [userPlan, session?.user?.email]);
+  }, [session?.user?.email, hasEmittedRegister]); // no userPlan dep
 
   // WebRTC helpers
   async function startPeer(partner: string, myRole: Role) {
@@ -362,13 +414,18 @@ export default function VideoPageClient() {
 
     pcRef.current = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
+    // add all local tracks
     localStreamRef.current.getTracks().forEach((t) => {
       if (pcRef.current && localStreamRef.current) pcRef.current.addTrack(t, localStreamRef.current);
     });
 
     pcRef.current.ontrack = (e) => {
-      if (remoteVideoRef.current && e.streams[0]) {
-        remoteVideoRef.current.srcObject = e.streams[0];
+      const stream = e.streams[0];
+      lastRemoteStreamRef.current = stream;
+      if (remoteVideoRef.current && stream) {
+        remoteVideoRef.current.srcObject = stream;
+        // FIXED: Remote video should NOT be mirrored (natural orientation)
+        remoteVideoRef.current.style.transform = "none";
         remoteVideoRef.current.play().catch(() => {});
       }
     };
@@ -392,7 +449,12 @@ export default function VideoPageClient() {
       pcRef.current.close();
       pcRef.current = null;
     }
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    // IMPORTANT: Don't clear the remote video stream when tearing down
+    // Only clear it when explicitly disconnecting
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+    lastRemoteStreamRef.current = null;
   }
 
   async function drainCandidateBuffer() {
@@ -445,11 +507,9 @@ export default function VideoPageClient() {
       return;
     }
 
-    const genderFilter = selectedMatchingOption.includes("_male")
-      ? "male"
-      : selectedMatchingOption.includes("_female")
-      ? "female"
-      : "any";
+    const genderFilter =
+      selectedMatchingOption.includes("_male") ? "male" :
+      selectedMatchingOption.includes("_female") ? "female" : "any";
 
     socket.emit("findPartner", {
       email: session.user.email,
@@ -494,7 +554,6 @@ export default function VideoPageClient() {
     if (!socketRef.current || !isConnected) return;
     setIsTyping(true);
     socketRef.current.emit("typing", { target: partnerId, isTyping: true });
-
     setTimeout(() => {
       setIsTyping(false);
       socketRef.current?.emit("typing", { target: partnerId, isTyping: false });
@@ -566,54 +625,54 @@ export default function VideoPageClient() {
 
       {/* Main Container */}
       <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 min-h-screen flex gap-6"} max-w-7xl mx-auto`}>
-        {/* Video Section */}
-        {showVideo && (
-          <div className={`${isMobile ? "order-2" : "flex-none w-[560px]"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
-            <div className={`${isMobile ? "flex gap-4" : "space-y-4"}`}>
-              {/* Local Video */}
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-white/80 text-sm font-medium">You</span>
-                </div>
-                <div className="relative group transition-transform duration-300 hover:scale-105">
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover local-video`}
-                    style={{ transform: "none" }}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
-                </div>
+        {/* Video Section (kept mounted; hidden via CSS when off) */}
+        <div className={`${isMobile ? "order-2" : "flex-none w-[640px]"} ${showVideo ? "" : "hidden"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
+          <div className={`${isMobile ? "flex gap-4" : "space-y-4"}`}>
+            {/* Local Video */}
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                <span className="text-white/80 text-sm font-medium">You</span>
               </div>
+              <div className="relative group transition-transform duration-300 hover:scale-105">
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className={`local-video w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover`}
+                  // FIXED: Mirror for natural preview
+                  style={{ transform: "scaleX(-1)" }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
+              </div>
+            </div>
 
-              {/* Remote Video */}
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                  <span className="text-white/80 text-sm font-medium">Stranger</span>
-                </div>
-                <div className="relative group transition-transform duration-300 hover:scale-105">
-                  <video
-                    ref={remoteVideoRef}
-                    autoPlay
-                    playsInline
-                    className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover`}
-                    style={{ transform: "none" }}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
-                </div>
+            {/* Remote Video */}
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                <span className="text-white/80 text-sm font-medium">Stranger</span>
+              </div>
+              <div className="relative group transition-transform duration-300 hover:scale-105">
+                <video
+                  ref={remoteVideoRef}
+                  autoPlay
+                  playsInline
+                  className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover`}
+                  // FIXED: No mirroring for remote video
+                  style={{ transform: "none" }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Chat Section */}
         <div className={`${isMobile ? "order-1" : "flex-1"} bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col ${isMobile ? "min-h-[500px]" : "min-h-[600px]"}`}>
           {/* Status Header */}
-          <div className={`p-4 border-b border-white/20`}>
+          <div className="p-4 border-b border-white/20">
             <div
               className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
                 isConnected ? "bg-green-500/20 border border-green-400/30" : "bg-orange-500/20 border border-orange-400/30"
@@ -782,41 +841,23 @@ export default function VideoPageClient() {
                 <div className="text-white/60 text-xs leading-relaxed">
                   {userPlan.user.planType === "free" && (
                     <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-green-400">✅</span> Same college matching
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-red-400">❌</span> Inter-college matching
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-red-400">❌</span> Gender filtering
-                      </div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
                     </div>
                   )}
                   {userPlan.user.planType === "intercollege" && userPlan.user.hasActivePlan && (
                     <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-green-400">✅</span> Same college matching
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-green-400">✅</span> Inter-college matching
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-red-400">❌</span> Gender filtering
-                      </div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
                     </div>
                   )}
                   {userPlan.user.planType === "gender" && userPlan.user.hasActivePlan && (
                     <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-green-400">✅</span> Same college matching
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-green-400">✅</span> Inter-college matching
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span>
-                      </div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
+                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span></div>
                     </div>
                   )}
                 </div>
@@ -879,26 +920,11 @@ export default function VideoPageClient() {
             </h3>
 
             <div className="space-y-1.5 text-white/80 text-xs">
-              <div className="flex items-center gap-1.5">
-                <span className="text-blue-400">•</span>
-                <span>Choose your matching preference</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-green-400">•</span>
-                <span>Click "Start" to find someone</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-purple-400">•</span>
-                <span>Chat via text or enable video</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-orange-400">•</span>
-                <span>Use "Next" to find a new person</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-red-400">•</span>
-                <span>Click "End" to stop completely</span>
-              </div>
+              <div className="flex items-center gap-1.5"><span className="text-blue-400">•</span><span>Choose your matching preference</span></div>
+              <div className="flex items-center gap-1.5"><span className="text-green-400">•</span><span>Click "Start" to find someone</span></div>
+              <div className="flex items-center gap-1.5"><span className="text-purple-400">•</span><span>Chat via text or enable video</span></div>
+              <div className="flex items-center gap-1.5"><span className="text-orange-400">•</span><span>Use "Next" to find a new person</span></div>
+              <div className="flex items-center gap-1.5"><span className="text-red-400">•</span><span>Click "End" to stop completely</span></div>
             </div>
 
             <div className="mt-3 p-2.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-400/30">
@@ -937,30 +963,20 @@ export default function VideoPageClient() {
           0% { transform: translateY(0px) rotate(0deg); }
           100% { transform: translateY(-10px) rotate(5deg); }
         }
-
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
+        .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
 
-        .animate-fade-in {
-          animation: fade-in 0.3s ease-out forwards;
-        }
+        /* Keep scroll contained so page doesn't jump while typing */
+        .chat-scroll { overscroll-behavior: contain; scroll-behavior: smooth; }
 
-        /* Contain scroll inside messages to avoid page jump on typing */
-        .chat-scroll {
-          overscroll-behavior: contain;
-          scroll-behavior: smooth;
-        }
+        /* FIXED: Local preview should be mirrored for natural feel */
+        .local-video { transform: scaleX(-1) !important; }
 
-        /* Local video must never be mirrored */
-        .local-video { transform: none !important; }
-
-        /* Link styling inside message text */
-        .msg-text a {
-          color: #4A6FA5;
-          text-decoration: underline;
-        }
+        /* Links inside messages */
+        .msg-text a { color: #4A6FA5; text-decoration: underline; }
 
         /* Custom scrollbar */
         ::-webkit-scrollbar { width: 6px; }
@@ -969,10 +985,7 @@ export default function VideoPageClient() {
         ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.5); }
 
         /* Gradient animations */
-        .bg-gradient-to-br {
-          background-size: 400% 400%;
-          animation: gradient 15s ease infinite;
-        }
+        .bg-gradient-to-br { background-size: 400% 400%; animation: gradient 15s ease infinite; }
         @keyframes gradient {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
