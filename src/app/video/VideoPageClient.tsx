@@ -42,7 +42,7 @@ type UserPlan = {
   };
 };
 
-const SOCKET_URL = "https://3a76eda49028.ngrok-free.app";
+const SOCKET_URL = "http://e7a148e9ab3c.ngrok-free.app";
 
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
