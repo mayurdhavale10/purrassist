@@ -240,6 +240,21 @@ export default function VideoPageClient() {
     }
   }, [showVideo]);
 
+  // Effect to handle video toggle during active connection
+  useEffect(() => {
+    // If video is enabled during an active connection, start peer connection
+    if (showVideo && isConnected && partnerId && !pcRef.current && localStreamRef.current) {
+      console.log("Video enabled during active connection, starting peer");
+      startPeer(partnerId, role || "initiator");
+    }
+    
+    // If video is disabled during active connection, stop peer connection
+    if (!showVideo && pcRef.current) {
+      console.log("Video disabled, closing peer connection");
+      teardownPeer();
+    }
+  }, [showVideo, isConnected, partnerId, role, cameraReady]);
+
   // SOCKET — stable connection without camera dependencies
   useEffect(() => {
     if (!userPlan || !session?.user?.email) return;
@@ -286,9 +301,21 @@ export default function VideoPageClient() {
         { id: Date.now().toString(), text: "You're now chatting with a random stranger. Say hi!", sender: "stranger", timestamp: new Date() },
       ]);
 
-      // Only start peer connection if camera is ready and user has video enabled
-      if (cameraReady && localStreamRef.current) {
-        await startPeer(pid, role);
+      // Always start peer connection if video is enabled, even if camera isn't ready yet
+      if (showVideo) {
+        // If camera isn't ready but video is enabled, try to initialize it
+        if (!cameraReady || !localStreamRef.current) {
+          try {
+            await initializeCamera();
+          } catch (err) {
+            console.error("Failed to initialize camera for peer connection:", err);
+          }
+        }
+        
+        // Start peer connection if we now have a stream
+        if (localStreamRef.current) {
+          await startPeer(pid, role);
+        }
       }
     });
 
@@ -309,15 +336,30 @@ export default function VideoPageClient() {
     socket.on("offer", async ({ sdp, caller }) => {
       setPartnerId(caller);
       setRole("answerer");
-      if (!pcRef.current && cameraReady && localStreamRef.current) {
+      
+      // Ensure we have camera ready for video call
+      if (showVideo && (!cameraReady || !localStreamRef.current)) {
+        try {
+          await initializeCamera();
+        } catch (err) {
+          console.error("Failed to initialize camera for offer:", err);
+        }
+      }
+      
+      if (!pcRef.current && showVideo && localStreamRef.current) {
         await startPeer(caller, "answerer");
       }
+      
       if (pcRef.current) {
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-        await drainCandidateBuffer();
-        const answer = await pcRef.current.createAnswer();
-        await pcRef.current.setLocalDescription(answer);
-        socket.emit("answer", { sdp: answer, target: caller });
+        try {
+          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          await drainCandidateBuffer();
+          const answer = await pcRef.current.createAnswer();
+          await pcRef.current.setLocalDescription(answer);
+          socket.emit("answer", { sdp: answer, target: caller });
+        } catch (err) {
+          console.error("Error handling offer:", err);
+        }
       }
     });
 
@@ -361,32 +403,67 @@ export default function VideoPageClient() {
 
   // WebRTC helpers
   async function startPeer(partner: string, myRole: Role) {
-    if (!localStreamRef.current || !cameraReady) return;
-    if (pcRef.current) pcRef.current.close();
+    if (!showVideo || !localStreamRef.current) {
+      console.log("Skipping peer connection - video disabled or no stream");
+      return;
+    }
+    
+    if (pcRef.current) {
+      console.log("Closing existing peer connection");
+      pcRef.current.close();
+    }
 
+    console.log(`Starting peer connection as ${myRole} with partner ${partner}`);
     pcRef.current = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    localStreamRef.current.getTracks().forEach((t) => {
-      if (pcRef.current && localStreamRef.current) pcRef.current.addTrack(t, localStreamRef.current);
+    // Add local stream tracks
+    localStreamRef.current.getTracks().forEach((track) => {
+      if (pcRef.current && localStreamRef.current) {
+        console.log(`Adding ${track.kind} track to peer connection`);
+        pcRef.current.addTrack(track, localStreamRef.current);
+      }
     });
 
+    // Handle incoming remote stream
     pcRef.current.ontrack = (e) => {
+      console.log("Received remote track:", e.track.kind);
       if (remoteVideoRef.current && e.streams[0]) {
+        console.log("Setting remote video stream");
         remoteVideoRef.current.srcObject = e.streams[0];
-        remoteVideoRef.current.play().catch(() => {});
+        remoteVideoRef.current.play().catch((err) => {
+          console.error("Error playing remote video:", err);
+        });
       }
     };
 
+    // Handle ICE candidates
     pcRef.current.onicecandidate = (e) => {
       if (e.candidate && socketRef.current) {
+        console.log("Sending ICE candidate");
         socketRef.current.emit("ice-candidate", { candidate: e.candidate.toJSON(), target: partner });
       }
     };
 
+    // Connection state logging
+    pcRef.current.onconnectionstatechange = () => {
+      console.log("Connection state:", pcRef.current?.connectionState);
+    };
+
+    pcRef.current.oniceconnectionstatechange = () => {
+      console.log("ICE connection state:", pcRef.current?.iceConnectionState);
+    };
+
+    // Create and send offer if initiator
     if (myRole === "initiator") {
-      const offer = await pcRef.current.createOffer();
-      await pcRef.current.setLocalDescription(offer);
-      socketRef.current!.emit("offer", { sdp: offer, target: partner });
+      try {
+        console.log("Creating offer as initiator");
+        const offer = await pcRef.current.createOffer();
+        await pcRef.current.setLocalDescription(offer);
+        socketRef.current!.emit("offer", { sdp: offer, target: partner });
+        console.log("Offer sent");
+      } catch (err) {
+        console.error("Error creating/sending offer:", err);
+      }
     }
   }
 
