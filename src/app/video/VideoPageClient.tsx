@@ -53,7 +53,7 @@ const ICE_SERVERS: RTCConfiguration["iceServers"] = [
 export default function VideoPageClient() {
   const { data: session, status } = useSession();
 
-  // Refsss
+  // Refs
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -86,6 +86,17 @@ export default function VideoPageClient() {
   const [pendingStart, setPendingStart] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // --- keep latest values without re-running socket effect ---
+  const showVideoRef = useRef(showVideo);
+  useEffect(() => { showVideoRef.current = showVideo; }, [showVideo]);
+
+  const selectedMatchingOptionRef = useRef(selectedMatchingOption);
+  useEffect(() => { selectedMatchingOptionRef.current = selectedMatchingOption; }, [selectedMatchingOption]);
+
+  const pendingStartRef = useRef(pendingStart);
+  useEffect(() => { pendingStartRef.current = pendingStart; }, [pendingStart]);
+  // -----------------------------------------------------------
+
   // Detect mobile/tablet
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 768);
@@ -96,17 +107,14 @@ export default function VideoPageClient() {
 
   // Auto-scroll chat only when new messages arrive, not when typing
   useEffect(() => {
-    if (!isTyping) {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
+    if (!isTyping) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   // Toast auto-hide
   useEffect(() => {
-    if (showToast) {
-      const timer = setTimeout(() => setShowToast(null), 3000);
-      return () => clearTimeout(timer);
-    }
+    if (!showToast) return;
+    const t = setTimeout(() => setShowToast(null), 3000);
+    return () => clearTimeout(t);
   }, [showToast]);
 
   // Fetch user plan after session ready
@@ -129,19 +137,13 @@ export default function VideoPageClient() {
       setLoading(true);
       const res = await fetch("/api/user/me");
       if (!res.ok) throw new Error("Failed to fetch user plan");
-
       const planData: UserPlan = await res.json();
       setUserPlan(planData);
 
-      // Generate matching options based on plan
       const matchingOptions = generateMatchingOptions(planData);
       setUserPlan({ ...planData, matchingOptions });
-
-      // Auto-select the first enabled option
-      const firstEnabled = matchingOptions.find(opt => !opt.disabled);
-      if (firstEnabled) {
-        setSelectedMatchingOption(firstEnabled.type);
-      }
+      const firstEnabled = matchingOptions.find((opt) => !opt.disabled);
+      if (firstEnabled) setSelectedMatchingOption(firstEnabled.type);
 
       setStatusMessage("Ready to start! Choose your matching preference.");
     } catch (e) {
@@ -158,16 +160,9 @@ export default function VideoPageClient() {
     const activePlan = hasActivePlan ? planType : "free";
 
     const options: MatchingOption[] = [
-      {
-        type: "same_any",
-        label: "Same College (Anyone)",
-        description: "Match with anyone from your college",
-        icon: "🏫",
-        disabled: false,
-      },
+      { type: "same_any", label: "Same College (Anyone)", description: "Match with anyone from your college", icon: "🏫", disabled: false },
     ];
 
-    // Inter-college options
     const interCollegeOption: MatchingOption = {
       type: "inter_any",
       label: "Inter College (Anyone)",
@@ -178,77 +173,19 @@ export default function VideoPageClient() {
     };
     options.push(interCollegeOption);
 
-    // Gender-specific options (only for gender plan)
     if (activePlan === "gender") {
       options.push(
-        {
-          type: "same_male",
-          label: "Same College (Males)",
-          description: "Match with males from your college",
-          icon: "🏫👨",
-          requiresGender: true,
-        },
-        {
-          type: "same_female",
-          label: "Same College (Females)",
-          description: "Match with females from your college",
-          icon: "🏫👩",
-          requiresGender: true,
-        },
-        {
-          type: "inter_male",
-          label: "Inter College (Males)",
-          description: "Match with males from any college",
-          icon: "🌍👨",
-          requiresGender: true,
-        },
-        {
-          type: "inter_female",
-          label: "Inter College (Females)",
-          description: "Match with females from any college",
-          icon: "🌍👩",
-          requiresGender: true,
-        }
+        { type: "same_male", label: "Same College (Males)", description: "Match with males from your college", icon: "🏫👨", requiresGender: true },
+        { type: "same_female", label: "Same College (Females)", description: "Match with females from your college", icon: "🏫👩", requiresGender: true },
+        { type: "inter_male", label: "Inter College (Males)", description: "Match with males from any college", icon: "🌍👨", requiresGender: true },
+        { type: "inter_female", label: "Inter College (Females)", description: "Match with females from any college", icon: "🌍👩", requiresGender: true },
       );
     } else {
-      // Show disabled gender options for other plans
       options.push(
-        {
-          type: "same_male",
-          label: "Same College (Males)",
-          description: "Match with males from your college",
-          icon: "🏫👨",
-          disabled: true,
-          disabledReason: "Upgrade to Gender plan",
-          requiresGender: true,
-        },
-        {
-          type: "same_female",
-          label: "Same College (Females)",
-          description: "Match with females from your college",
-          icon: "🏫👩",
-          disabled: true,
-          disabledReason: "Upgrade to Gender plan",
-          requiresGender: true,
-        },
-        {
-          type: "inter_male",
-          label: "Inter College (Males)",
-          description: "Match with males from any college",
-          icon: "🌍👨",
-          disabled: true,
-          disabledReason: "Upgrade to Gender plan",
-          requiresGender: true,
-        },
-        {
-          type: "inter_female",
-          label: "Inter College (Females)",
-          description: "Match with females from any college",
-          icon: "🌍👩",
-          disabled: true,
-          disabledReason: "Upgrade to Gender plan",
-          requiresGender: true,
-        }
+        { type: "same_male", label: "Same College (Males)", description: "Match with males from your college", icon: "🏫👨", disabled: true, disabledReason: "Upgrade to Gender plan", requiresGender: true },
+        { type: "same_female", label: "Same College (Females)", description: "Match with females from your college", icon: "🏫👩", disabled: true, disabledReason: "Upgrade to Gender plan", requiresGender: true },
+        { type: "inter_male", label: "Inter College (Males)", description: "Match with males from any college", icon: "🌍👨", disabled: true, disabledReason: "Upgrade to Gender plan", requiresGender: true },
+        { type: "inter_female", label: "Inter College (Females)", description: "Match with females from any college", icon: "🌍👩", disabled: true, disabledReason: "Upgrade to Gender plan", requiresGender: true },
       );
     }
 
@@ -273,8 +210,8 @@ export default function VideoPageClient() {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        // Fix mirror effect - show original image
-        localVideoRef.current.style.transform = "scaleX(1)";
+        // Mirror fix: original orientation
+        localVideoRef.current.style.transform = "none";
         localVideoRef.current.play().catch(() => {});
       }
       setStatusMessage("Camera ready. Choose your matching preference and click 'Start'...");
@@ -293,7 +230,7 @@ export default function VideoPageClient() {
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
   };
 
-  // Socket setup
+  // SOCKET — keep stable (do not depend on showVideo/selected option)
   useEffect(() => {
     if (!userPlan || !session?.user?.email) return;
 
@@ -311,12 +248,12 @@ export default function VideoPageClient() {
     socket.on("registrationSuccess", () => {
       setIsRegistered(true);
       setStatusMessage("Ready to start! Choose your matching preference.");
-      if (pendingStart && selectedMatchingOption) {
-        const genderFilter = selectedMatchingOption.includes("_male") ? "male" :
-                           selectedMatchingOption.includes("_female") ? "female" : "any";
+      if (pendingStartRef.current && selectedMatchingOptionRef.current) {
+        const opt = selectedMatchingOptionRef.current;
+        const genderFilter = opt.includes("_male") ? "male" : opt.includes("_female") ? "female" : "any";
         socket.emit("findPartner", {
           email: session.user!.email!,
-          matchingPreference: selectedMatchingOption,
+          matchingPreference: opt,
           preferredGender: genderFilter !== "any" ? genderFilter : undefined,
         });
         setPendingStart(false);
@@ -344,15 +281,10 @@ export default function VideoPageClient() {
       setStatusMessage("You're now chatting with a random stranger. Say hi!");
       setIsConnected(true);
       setMessages([
-        {
-          id: Date.now().toString(),
-          text: "You're now chatting with a random stranger. Say hi!",
-          sender: "stranger",
-          timestamp: new Date(),
-        },
+        { id: Date.now().toString(), text: "You're now chatting with a random stranger. Say hi!", sender: "stranger", timestamp: new Date() },
       ]);
 
-      if (showVideo && localStreamRef.current) {
+      if (showVideoRef.current && localStreamRef.current) {
         await startPeer(pid, role);
       }
     });
@@ -374,7 +306,7 @@ export default function VideoPageClient() {
     socket.on("offer", async ({ sdp, caller }) => {
       setPartnerId(caller);
       setRole("answerer");
-      if (!pcRef.current && showVideo) await startPeer(caller, "answerer");
+      if (!pcRef.current && showVideoRef.current) await startPeer(caller, "answerer");
       if (pcRef.current) {
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
         await drainCandidateBuffer();
@@ -421,11 +353,11 @@ export default function VideoPageClient() {
       setHasEmittedRegister(false);
       setPendingStart(false);
     };
-  }, [userPlan, session, selectedMatchingOption, showVideo]);
+  }, [userPlan, session?.user?.email]);
 
   // WebRTC helpers
   async function startPeer(partner: string, myRole: Role) {
-    if (!localStreamRef.current || !showVideo) return;
+    if (!localStreamRef.current || !showVideoRef.current) return;
     if (pcRef.current) pcRef.current.close();
 
     pcRef.current = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -476,7 +408,7 @@ export default function VideoPageClient() {
     if (option.disabled) {
       setShowToast({
         message: option.disabledReason || "This feature is not available in your current plan",
-        type: "error"
+        type: "error",
       });
       return;
     }
@@ -487,11 +419,11 @@ export default function VideoPageClient() {
   function handleStart() {
     if (!selectedMatchingOption || !session?.user?.email) return;
 
-    const selectedOption = userPlan?.matchingOptions.find(opt => opt.type === selectedMatchingOption);
+    const selectedOption = userPlan?.matchingOptions.find((opt) => opt.type === selectedMatchingOption);
     if (selectedOption?.disabled) {
       setShowToast({
         message: selectedOption.disabledReason || "This feature is not available in your current plan",
-        type: "error"
+        type: "error",
       });
       return;
     }
@@ -513,11 +445,14 @@ export default function VideoPageClient() {
       return;
     }
 
-    const genderFilter = selectedMatchingOption.includes("_male") ? "male" :
-                        selectedMatchingOption.includes("_female") ? "female" : "any";
+    const genderFilter = selectedMatchingOption.includes("_male")
+      ? "male"
+      : selectedMatchingOption.includes("_female")
+      ? "female"
+      : "any";
 
-    socket.emit("findPartner", { 
-      email: session.user.email, 
+    socket.emit("findPartner", {
+      email: session.user.email,
       matchingPreference: selectedMatchingOption,
       preferredGender: genderFilter !== "any" ? genderFilter : undefined,
     });
@@ -559,8 +494,7 @@ export default function VideoPageClient() {
     if (!socketRef.current || !isConnected) return;
     setIsTyping(true);
     socketRef.current.emit("typing", { target: partnerId, isTyping: true });
-    
-    // Stop typing indicator after 2 seconds
+
     setTimeout(() => {
       setIsTyping(false);
       socketRef.current?.emit("typing", { target: partnerId, isTyping: false });
@@ -578,7 +512,7 @@ export default function VideoPageClient() {
       </div>
     );
   }
-  
+
   if (status === "unauthenticated") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
@@ -608,7 +542,7 @@ export default function VideoPageClient() {
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
               animationDelay: `${Math.random() * 3}s`,
-              animation: `float ${3 + Math.random() * 2}s ease-in-out infinite alternate`
+              animation: `float ${3 + Math.random() * 2}s ease-in-out infinite alternate`,
             }}
           />
         ))}
@@ -616,11 +550,13 @@ export default function VideoPageClient() {
 
       {/* Toast Notification */}
       {showToast && (
-        <div className={`fixed top-6 right-6 z-50 p-4 rounded-xl backdrop-blur-lg shadow-2xl transform transition-all duration-300 ${
-          showToast.type === "error" 
-            ? "bg-red-500/90 text-white border border-red-400/50" 
-            : "bg-blue-500/90 text-white border border-blue-400/50"
-        }`}>
+        <div
+          className={`fixed top-6 right-6 z-50 p-4 rounded-xl backdrop-blur-lg shadow-2xl transform transition-all duration-300 ${
+            showToast.type === "error"
+              ? "bg-red-500/90 text-white border border-red-400/50"
+              : "bg-blue-500/90 text-white border border-blue-400/50"
+          }`}
+        >
           <div className="flex items-center gap-2">
             <span className="text-xl">{showToast.type === "error" ? "⚠️" : "ℹ️"}</span>
             <span className="font-medium">{showToast.message}</span>
@@ -630,10 +566,9 @@ export default function VideoPageClient() {
 
       {/* Main Container */}
       <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 min-h-screen flex gap-6"} max-w-7xl mx-auto`}>
-        
         {/* Video Section */}
         {showVideo && (
-          <div className={`${isMobile ? "order-2" : "flex-none w-96"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
+          <div className={`${isMobile ? "order-2" : "flex-none w-[560px]"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
             <div className={`${isMobile ? "flex gap-4" : "space-y-4"}`}>
               {/* Local Video */}
               <div className="flex-1">
@@ -641,30 +576,32 @@ export default function VideoPageClient() {
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-white/80 text-sm font-medium">You</span>
                 </div>
-                <div className="relative group">
-                  <video 
-                    ref={localVideoRef} 
-                    autoPlay 
-                    muted 
+                <div className="relative group transition-transform duration-300 hover:scale-105">
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
                     playsInline
-                    className={`w-full ${isMobile ? "h-32" : "h-48"} bg-gray-900 rounded-xl object-cover transition-all duration-300 group-hover:scale-105`}
+                    className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover local-video`}
+                    style={{ transform: "none" }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
                 </div>
               </div>
-              
+
               {/* Remote Video */}
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
                   <span className="text-white/80 text-sm font-medium">Stranger</span>
                 </div>
-                <div className="relative group">
-                  <video 
-                    ref={remoteVideoRef} 
-                    autoPlay 
+                <div className="relative group transition-transform duration-300 hover:scale-105">
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
                     playsInline
-                    className={`w-full ${isMobile ? "h-32" : "h-48"} bg-gray-900 rounded-xl object-cover transition-all duration-300 group-hover:scale-105`}
+                    className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover`}
+                    style={{ transform: "none" }}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
                 </div>
@@ -677,46 +614,48 @@ export default function VideoPageClient() {
         <div className={`${isMobile ? "order-1" : "flex-1"} bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col ${isMobile ? "min-h-[500px]" : "min-h-[600px]"}`}>
           {/* Status Header */}
           <div className={`p-4 border-b border-white/20`}>
-            <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
-              isConnected 
-                ? "bg-green-500/20 border border-green-400/30" 
-                : "bg-orange-500/20 border border-orange-400/30"
-            }`}>
+            <div
+              className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
+                isConnected ? "bg-green-500/20 border border-green-400/30" : "bg-orange-500/20 border border-orange-400/30"
+              }`}
+            >
               <div className={`w-3 h-3 rounded-full animate-pulse ${isConnected ? "bg-green-400" : "bg-orange-400"}`}></div>
               <span className="text-white font-medium text-sm">{statusMessage}</span>
             </div>
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-3" style={{ minHeight: isMobile ? "300px" : "400px" }}>
+          <div className="flex-1 p-4 overflow-y-auto space-y-3 chat-scroll" style={{ minHeight: isMobile ? "300px" : "400px" }}>
             {messages.map((msg, index) => (
               <div
                 key={msg.id}
                 className={`flex ${msg.sender === "you" ? "justify-end" : "justify-start"} animate-fade-in`}
                 style={{ animationDelay: `${index * 0.1}s` }}
               >
-                <div className={`max-w-[80%] p-3 rounded-2xl backdrop-blur-sm border transition-all duration-300 hover:scale-105 ${
-                  msg.sender === "you"
-                    ? "bg-blue-500/90 text-white border-blue-400/50 rounded-br-md"
-                    : "bg-white/20 text-white border-white/30 rounded-bl-md"
-                }`}>
-                  <div className="text-xs opacity-70 mb-1">
+                <div
+                  className={`max-w-[80%] p-3 rounded-2xl border transition-all duration-300 ${
+                    msg.sender === "you"
+                      ? "bg-[#6BBBA1] text-slate-900 border-[#6BBBA1]/60 rounded-br-md"
+                      : "bg-[#4A6FA5] text-white border-[#4A6FA5]/70 rounded-bl-md"
+                  }`}
+                >
+                  <div className="text-[10px] font-medium mb-1" style={{ color: "#94A3B8" }}>
                     {msg.sender === "you" ? "You" : "Stranger"}
                   </div>
-                  <div className="text-sm leading-relaxed">{msg.text}</div>
+                  <div className="text-sm leading-relaxed msg-text">{msg.text}</div>
                 </div>
               </div>
             ))}
-            
+
             {strangerTyping && (
               <div className="flex justify-start animate-fade-in">
-                <div className="bg-white/20 backdrop-blur-sm border border-white/30 p-3 rounded-2xl rounded-bl-md">
+                <div className="bg-[#4A6FA5] text-white border border-[#4A6FA5]/70 p-3 rounded-2xl rounded-bl-md">
                   <div className="flex items-center gap-2">
-                    <span className="text-white/80 text-sm">Stranger is typing</span>
+                    <span className="text-white/90 text-sm">Stranger is typing</span>
                     <div className="flex gap-1">
-                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
-                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
+                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
+                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
+                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
                     </div>
                   </div>
                 </div>
@@ -740,14 +679,14 @@ export default function VideoPageClient() {
                 onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                 placeholder={isConnected ? "Type your message..." : "Connect to start chatting"}
                 disabled={!isConnected}
-                className="flex-1 p-3 bg-white/10 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/60 focus:outline-none focus:border-blue-400/50 focus:bg-white/20 transition-all duration-300"
+                className="flex-1 p-3 bg-[#F1F5F9] border border-slate-300 rounded-xl text-slate-900 placeholder-slate-500 focus:outline-none focus:border-[#4A6FA5] transition-all duration-300"
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!isConnected || !messageInput.trim()}
-                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
+                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
                   isConnected && messageInput.trim()
-                    ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg hover:shadow-xl"
+                    ? "bg-[#4A6FA5] text-white shadow-lg hover:shadow-xl hover:brightness-110"
                     : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
                 }`}
               >
@@ -760,14 +699,13 @@ export default function VideoPageClient() {
 
         {/* Controls Section */}
         <div className={`${isMobile ? "order-3 space-y-4" : "flex-none w-80 space-y-4 overflow-y-auto max-h-screen"}`}>
-          
           {/* Plan Info Card */}
           {userPlan && (
-            <div className={`p-6 rounded-2xl border shadow-2xl transition-all duration-300 hover:scale-105 ${
-              userPlan.planStatus.isActive 
-                ? "bg-gradient-to-br from-emerald-500/90 to-teal-600/90 border-emerald-400/50" 
-                : "bg-white/10 backdrop-blur-lg border-white/20"
-            }`}>
+            <div
+              className={`p-6 rounded-2xl border shadow-2xl transition-all duration-300 hover:scale-105 ${
+                userPlan.planStatus.isActive ? "bg-gradient-to-br from-emerald-500/90 to-teal-600/90 border-emerald-400/50" : "bg-white/10 backdrop-blur-lg border-white/20"
+              }`}
+            >
               <div className="flex items-center gap-3 mb-3">
                 <div className={`p-2 rounded-lg ${userPlan.planStatus.isActive ? "bg-white/20" : "bg-purple-500/20"}`}>
                   <span className="text-xl">{userPlan.planStatus.isActive ? "💎" : "🆓"}</span>
@@ -777,7 +715,7 @@ export default function VideoPageClient() {
                   <p className="text-white/70 text-sm">{userPlan.user.college}</p>
                 </div>
               </div>
-              
+
               {userPlan.planStatus.daysRemaining !== undefined && userPlan.planStatus.daysRemaining !== null && (
                 <div className="bg-white/10 rounded-lg p-2 mt-3">
                   <p className="text-white/80 text-xs text-center">
@@ -801,11 +739,11 @@ export default function VideoPageClient() {
                   <label
                     key={option.type}
                     className={`block p-2.5 rounded-lg border cursor-pointer transition-all duration-300 transform hover:scale-105 ${
-                      option.disabled 
-                        ? "bg-gray-500/20 border-gray-400/30 cursor-not-allowed opacity-60" 
-                        : selectedMatchingOption === option.type 
-                          ? "bg-blue-500/30 border-blue-400/50 shadow-lg" 
-                          : "bg-white/5 border-white/20 hover:bg-white/10"
+                      option.disabled
+                        ? "bg-gray-500/20 border-gray-400/30 cursor-not-allowed opacity-60"
+                        : selectedMatchingOption === option.type
+                        ? "bg-[#4A6FA5]/30 border-[#4A6FA5]/50 shadow-lg"
+                        : "bg-white/5 border-white/20 hover:bg-white/10"
                     }`}
                     onClick={() => handleOptionSelect(option.type, option)}
                   >
@@ -825,7 +763,7 @@ export default function VideoPageClient() {
                           <span className="text-white font-medium text-xs leading-tight">{option.label}</span>
                         </div>
                         <p className="text-white/70 text-xs leading-relaxed">{option.description}</p>
-                        
+
                         {option.disabled && (
                           <div className="mt-1.5 flex items-center gap-1">
                             <span className="text-red-400 text-xs">🔒</span>
@@ -844,23 +782,41 @@ export default function VideoPageClient() {
                 <div className="text-white/60 text-xs leading-relaxed">
                   {userPlan.user.planType === "free" && (
                     <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
-                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Inter-college matching</div>
-                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Same college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-red-400">❌</span> Inter-college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-red-400">❌</span> Gender filtering
+                      </div>
                     </div>
                   )}
                   {userPlan.user.planType === "intercollege" && userPlan.user.hasActivePlan && (
                     <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
-                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
-                      <div className="flex items-center gap-1.5"><span className="text-red-400">❌</span> Gender filtering</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Same college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Inter-college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-red-400">❌</span> Gender filtering
+                      </div>
                     </div>
                   )}
                   {userPlan.user.planType === "gender" && userPlan.user.hasActivePlan && (
                     <div className="space-y-0.5">
-                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Same college matching</div>
-                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Inter-college matching</div>
-                      <div className="flex items-center gap-1.5"><span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span></div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Same college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Inter-college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -874,10 +830,8 @@ export default function VideoPageClient() {
               <button
                 onClick={handleStart}
                 disabled={!selectedMatchingOption}
-                className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 transform hover:scale-105 ${
-                  selectedMatchingOption
-                    ? "bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg hover:shadow-xl"
-                    : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
+                className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 ${
+                  selectedMatchingOption ? "bg-[#6BBBA1] text-slate-900 shadow-lg hover:shadow-xl hover:brightness-110" : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
                 }`}
               >
                 <span className="mr-2 text-lg">🚀</span>
@@ -887,14 +841,14 @@ export default function VideoPageClient() {
               <div className="space-y-2.5">
                 <button
                   onClick={handleNext}
-                  className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                  className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
                 >
                   <span className="mr-2 text-lg">⏭️</span>
                   Next Person
                 </button>
                 <button
                   onClick={handleEnd}
-                  className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                  className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
                 >
                   <span className="mr-2">🛑</span>
                   End Chat
@@ -905,13 +859,8 @@ export default function VideoPageClient() {
             {/* Video Toggle */}
             <label className="flex items-center gap-2.5 mt-3 p-2.5 rounded-xl bg-white/5 border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/10">
               <div className="relative">
-                <input
-                  type="checkbox"
-                  checked={showVideo}
-                  onChange={(e) => setShowVideo(e.target.checked)}
-                  className="sr-only"
-                />
-                <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-blue-500" : "bg-gray-600"}`}>
+                <input type="checkbox" checked={showVideo} onChange={(e) => setShowVideo(e.target.checked)} className="sr-only" />
+                <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-[#4A6FA5]" : "bg-gray-600"}`}>
                   <div className={`w-4 h-4 bg-white rounded-full transition-all duration-300 transform ${showVideo ? "translate-x-5" : "translate-x-0.5"} mt-0.5`}></div>
                 </div>
               </div>
@@ -928,7 +877,7 @@ export default function VideoPageClient() {
               <span className="text-lg">💡</span>
               How it works
             </h3>
-            
+
             <div className="space-y-1.5 text-white/80 text-xs">
               <div className="flex items-center gap-1.5">
                 <span className="text-blue-400">•</span>
@@ -988,71 +937,42 @@ export default function VideoPageClient() {
           0% { transform: translateY(0px) rotate(0deg); }
           100% { transform: translateY(-10px) rotate(5deg); }
         }
-        
+
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .animate-fade-in {
           animation: fade-in 0.3s ease-out forwards;
         }
-        
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-          width: 6px;
-        }
-        
-        ::-webkit-scrollbar-track {
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 3px;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.3);
-          border-radius: 3px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.5);
-        }
-        
-        /* Prevent scroll when typing */
-        .chat-container {
+
+        /* Contain scroll inside messages to avoid page jump on typing */
+        .chat-scroll {
+          overscroll-behavior: contain;
           scroll-behavior: smooth;
         }
-        
-        /* Video mirror fix */
-        video {
-          transform: scaleX(1) !important;
+
+        /* Local video must never be mirrored */
+        .local-video { transform: none !important; }
+
+        /* Link styling inside message text */
+        .msg-text a {
+          color: #4A6FA5;
+          text-decoration: underline;
         }
-        
-        /* Glassmorphism effect */
-        .backdrop-blur-lg {
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-        }
-        
-        .backdrop-blur-sm {
-          backdrop-filter: blur(4px);
-          -webkit-backdrop-filter: blur(4px);
-        }
-        
-        /* Enhanced hover effects */
-        .transform {
-          transition: transform 0.2s ease-in-out;
-        }
-        
-        .hover\\:scale-105:hover {
-          transform: scale(1.05);
-        }
-        
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.5); }
+
         /* Gradient animations */
         .bg-gradient-to-br {
           background-size: 400% 400%;
           animation: gradient 15s ease infinite;
         }
-        
         @keyframes gradient {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
