@@ -53,7 +53,7 @@ const ICE_SERVERS: RTCConfiguration["iceServers"] = [
 export default function VideoPageClient() {
   const { data: session, status } = useSession();
 
-  // Refs
+  // Refsss
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -61,7 +61,6 @@ export default function VideoPageClient() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const candidateBufferRef = useRef<RTCIceCandidateInit[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   // UI/State
   const [statusMessage, setStatusMessage] = useState("Initializing...");
@@ -74,7 +73,6 @@ export default function VideoPageClient() {
   const [showVideo, setShowVideo] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
 
   // Plan-related
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
@@ -101,7 +99,7 @@ export default function VideoPageClient() {
     if (!isTyping) {
       chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isTyping]);
+  }, [messages]);
 
   // Toast auto-hide
   useEffect(() => {
@@ -110,23 +108,6 @@ export default function VideoPageClient() {
       return () => clearTimeout(timer);
     }
   }, [showToast]);
-
-  // Body scroll lock on mobile while typing (prevents page scroll jump)
-  useEffect(() => {
-    if (isMobile) {
-      if (inputFocused) {
-        document.body.style.overflow = "hidden";
-        (document.documentElement as HTMLElement).style.overscrollBehaviorY = "contain";
-      } else {
-        document.body.style.overflow = "";
-        (document.documentElement as HTMLElement).style.overscrollBehaviorY = "";
-      }
-    }
-    return () => {
-      document.body.style.overflow = "";
-      (document.documentElement as HTMLElement).style.overscrollBehaviorY = "";
-    };
-  }, [inputFocused, isMobile]);
 
   // Fetch user plan after session ready
   useEffect(() => {
@@ -292,8 +273,8 @@ export default function VideoPageClient() {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        // Mirror fix: ensure no transform is applied directly to the video element
-        localVideoRef.current.style.transform = "none";
+        // Fix mirror effect - show original image
+        localVideoRef.current.style.transform = "scaleX(1)";
         localVideoRef.current.play().catch(() => {});
       }
       setStatusMessage("Camera ready. Choose your matching preference and click 'Start'...");
@@ -440,7 +421,7 @@ export default function VideoPageClient() {
       setHasEmittedRegister(false);
       setPendingStart(false);
     };
-  }, [userPlan, session, selectedMatchingOption, showVideo, pendingStart, hasEmittedRegister]);
+  }, [userPlan, session, selectedMatchingOption, showVideo]);
 
   // WebRTC helpers
   async function startPeer(partner: string, myRole: Role) {
@@ -589,7 +570,7 @@ export default function VideoPageClient() {
   // Loading & unauthenticated
   if (loading || status === "loading") {
     return (
-      <div className="min-h-[100svh] bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mb-4"></div>
           <p className="text-white text-xl font-light">Loading...</p>
@@ -600,7 +581,7 @@ export default function VideoPageClient() {
   
   if (status === "unauthenticated") {
     return (
-      <div className="min-h-[100svh] bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
         <div className="text-center p-8 bg-white/10 backdrop-blur-lg rounded-2xl">
           <p className="text-white text-xl font-light">Please sign in to use the chat</p>
         </div>
@@ -609,7 +590,7 @@ export default function VideoPageClient() {
   }
 
   return (
-    <div className={`min-h-[100svh] bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 relative overflow-hidden ${inputFocused && isMobile ? "overflow-hidden" : ""}`}>
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 relative overflow-hidden">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-pink-500/20 rounded-full blur-3xl animate-pulse"></div>
@@ -648,11 +629,11 @@ export default function VideoPageClient() {
       )}
 
       {/* Main Container */}
-      <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 min-h-[100svh] flex gap-6"} max-w-7xl mx-auto`}>
+      <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 min-h-screen flex gap-6"} max-w-7xl mx-auto`}>
         
         {/* Video Section */}
         {showVideo && (
-          <div className={`${isMobile ? "order-2" : "flex-none w-[560px]"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
+          <div className={`${isMobile ? "order-2" : "flex-none w-96"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
             <div className={`${isMobile ? "flex gap-4" : "space-y-4"}`}>
               {/* Local Video */}
               <div className="flex-1">
@@ -660,16 +641,13 @@ export default function VideoPageClient() {
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-white/80 text-sm font-medium">You</span>
                 </div>
-                {/* Hover scale moved to WRAPPER, not the <video> (prevents transform conflicts) */}
-                <div className="relative group transition-transform duration-300 hover:scale-105">
+                <div className="relative group">
                   <video 
                     ref={localVideoRef} 
                     autoPlay 
                     muted 
                     playsInline
-                    className={`no-mirror w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover`}
-                    // double-ensure: no transform at element level
-                    style={{ transform: "none" }}
+                    className={`w-full ${isMobile ? "h-32" : "h-48"} bg-gray-900 rounded-xl object-cover transition-all duration-300 group-hover:scale-105`}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
                 </div>
@@ -681,13 +659,12 @@ export default function VideoPageClient() {
                   <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
                   <span className="text-white/80 text-sm font-medium">Stranger</span>
                 </div>
-                <div className="relative group transition-transform duration-300 hover:scale-105">
+                <div className="relative group">
                   <video 
                     ref={remoteVideoRef} 
                     autoPlay 
                     playsInline
-                    className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover`}
-                    style={{ transform: "none" }}
+                    className={`w-full ${isMobile ? "h-32" : "h-48"} bg-gray-900 rounded-xl object-cover transition-all duration-300 group-hover:scale-105`}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
                 </div>
@@ -699,7 +676,7 @@ export default function VideoPageClient() {
         {/* Chat Section */}
         <div className={`${isMobile ? "order-1" : "flex-1"} bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col ${isMobile ? "min-h-[500px]" : "min-h-[600px]"}`}>
           {/* Status Header */}
-          <div className={`p-4 border-b border-white/20 sticky top-0 z-10 bg-transparent`}>
+          <div className={`p-4 border-b border-white/20`}>
             <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
               isConnected 
                 ? "bg-green-500/20 border border-green-400/30" 
@@ -711,44 +688,35 @@ export default function VideoPageClient() {
           </div>
 
           {/* Messages Area */}
-          <div
-            ref={messagesContainerRef}
-            className="flex-1 p-4 overflow-y-auto space-y-3 chat-scroll"
-            style={{ minHeight: isMobile ? "300px" : "400px" }}
-          >
+          <div className="flex-1 p-4 overflow-y-auto space-y-3" style={{ minHeight: isMobile ? "300px" : "400px" }}>
             {messages.map((msg, index) => (
               <div
                 key={msg.id}
                 className={`flex ${msg.sender === "you" ? "justify-end" : "justify-start"} animate-fade-in`}
                 style={{ animationDelay: `${index * 0.1}s` }}
               >
-                <div
-                  className={`max-w-[80%] p-3 rounded-2xl border transition-all duration-300 ${
-                    msg.sender === "you"
-                      ? "bg-[#6BBBA1] text-slate-900 border-[#6BBBA1]/60 rounded-br-md"
-                      : "bg-[#4A6FA5] text-white border-[#4A6FA5]/70 rounded-bl-md"
-                  }`}
-                >
-                  <div className="text-[10px] font-medium mb-1" style={{ color: "#94A3B8" }}>
+                <div className={`max-w-[80%] p-3 rounded-2xl backdrop-blur-sm border transition-all duration-300 hover:scale-105 ${
+                  msg.sender === "you"
+                    ? "bg-blue-500/90 text-white border-blue-400/50 rounded-br-md"
+                    : "bg-white/20 text-white border-white/30 rounded-bl-md"
+                }`}>
+                  <div className="text-xs opacity-70 mb-1">
                     {msg.sender === "you" ? "You" : "Stranger"}
                   </div>
-                  <div className="text-sm leading-relaxed">
-                    {/* links color match */}
-                    <span className="msg-text">{msg.text}</span>
-                  </div>
+                  <div className="text-sm leading-relaxed">{msg.text}</div>
                 </div>
               </div>
             ))}
             
             {strangerTyping && (
               <div className="flex justify-start animate-fade-in">
-                <div className="bg-[#4A6FA5] text-white border border-[#4A6FA5]/70 p-3 rounded-2xl rounded-bl-md">
+                <div className="bg-white/20 backdrop-blur-sm border border-white/30 p-3 rounded-2xl rounded-bl-md">
                   <div className="flex items-center gap-2">
-                    <span className="text-white/90 text-sm">Stranger is typing</span>
+                    <span className="text-white/80 text-sm">Stranger is typing</span>
                     <div className="flex gap-1">
-                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
-                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
+                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
+                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
+                      <div className="w-1 h-1 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
                     </div>
                   </div>
                 </div>
@@ -763,8 +731,6 @@ export default function VideoPageClient() {
               <input
                 type="text"
                 value={messageInput}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
                 onChange={(e) => {
                   setMessageInput(e.target.value);
                   if (e.target.value && !isTyping) {
@@ -774,14 +740,14 @@ export default function VideoPageClient() {
                 onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                 placeholder={isConnected ? "Type your message..." : "Connect to start chatting"}
                 disabled={!isConnected}
-                className="flex-1 p-3 bg-[#F1F5F9] border border-slate-300 rounded-xl text-slate-900 placeholder-slate-500 focus:outline-none focus:border-[#4A6FA5] transition-all duration-300"
+                className="flex-1 p-3 bg-white/10 backdrop-blur-sm border border-white/30 rounded-xl text-white placeholder-white/60 focus:outline-none focus:border-blue-400/50 focus:bg-white/20 transition-all duration-300"
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!isConnected || !messageInput.trim()}
-                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
+                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 transform hover:scale-105 ${
                   isConnected && messageInput.trim()
-                    ? "bg-[#4A6FA5] text-white shadow-lg hover:shadow-xl hover:brightness-110"
+                    ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg hover:shadow-xl"
                     : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
                 }`}
               >
@@ -793,7 +759,7 @@ export default function VideoPageClient() {
         </div>
 
         {/* Controls Section */}
-        <div className={`${isMobile ? "order-3 space-y-4" : "flex-none w-80 space-y-4 overflow-y-auto max-h-[90svh]"}`}>
+        <div className={`${isMobile ? "order-3 space-y-4" : "flex-none w-80 space-y-4 overflow-y-auto max-h-screen"}`}>
           
           {/* Plan Info Card */}
           {userPlan && (
@@ -838,7 +804,7 @@ export default function VideoPageClient() {
                       option.disabled 
                         ? "bg-gray-500/20 border-gray-400/30 cursor-not-allowed opacity-60" 
                         : selectedMatchingOption === option.type 
-                          ? "bg-[#4A6FA5]/30 border-[#4A6FA5]/50 shadow-lg" 
+                          ? "bg-blue-500/30 border-blue-400/50 shadow-lg" 
                           : "bg-white/5 border-white/20 hover:bg-white/10"
                     }`}
                     onClick={() => handleOptionSelect(option.type, option)}
@@ -908,9 +874,9 @@ export default function VideoPageClient() {
               <button
                 onClick={handleStart}
                 disabled={!selectedMatchingOption}
-                className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 ${
+                className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 transform hover:scale-105 ${
                   selectedMatchingOption
-                    ? "bg-[#6BBBA1] text-slate-900 shadow-lg hover:shadow-xl hover:brightness-110"
+                    ? "bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg hover:shadow-xl"
                     : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
                 }`}
               >
@@ -921,14 +887,14 @@ export default function VideoPageClient() {
               <div className="space-y-2.5">
                 <button
                   onClick={handleNext}
-                  className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
+                  className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                 >
                   <span className="mr-2 text-lg">⏭️</span>
                   Next Person
                 </button>
                 <button
                   onClick={handleEnd}
-                  className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
+                  className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                 >
                   <span className="mr-2">🛑</span>
                   End Chat
@@ -945,7 +911,7 @@ export default function VideoPageClient() {
                   onChange={(e) => setShowVideo(e.target.checked)}
                   className="sr-only"
                 />
-                <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-[#4A6FA5]" : "bg-gray-600"}`}>
+                <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-blue-500" : "bg-gray-600"}`}>
                   <div className={`w-4 h-4 bg-white rounded-full transition-all duration-300 transform ${showVideo ? "translate-x-5" : "translate-x-0.5"} mt-0.5`}></div>
                 </div>
               </div>
@@ -965,23 +931,23 @@ export default function VideoPageClient() {
             
             <div className="space-y-1.5 text-white/80 text-xs">
               <div className="flex items-center gap-1.5">
-                <span className="text-blue-300">•</span>
+                <span className="text-blue-400">•</span>
                 <span>Choose your matching preference</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-green-300">•</span>
+                <span className="text-green-400">•</span>
                 <span>Click "Start" to find someone</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-purple-300">•</span>
+                <span className="text-purple-400">•</span>
                 <span>Chat via text or enable video</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-orange-300">•</span>
+                <span className="text-orange-400">•</span>
                 <span>Use "Next" to find a new person</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-red-300">•</span>
+                <span className="text-red-400">•</span>
                 <span>Click "End" to stop completely</span>
               </div>
             </div>
@@ -1031,35 +997,62 @@ export default function VideoPageClient() {
         .animate-fade-in {
           animation: fade-in 0.3s ease-out forwards;
         }
-
-        /* Contain scroll to messages; prevent page jump while typing */
-        .chat-scroll {
-          overscroll-behavior: contain;
-          scroll-behavior: smooth;
-        }
-
-        /* Ensure local video never mirrors */
-        .no-mirror {
-          transform: none !important;
-        }
-
-        /* Link styling inside message text */
-        .msg-text a {
-          color: #4A6FA5;
-          text-decoration: underline;
-        }
         
         /* Custom scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.5); }
+        ::-webkit-scrollbar {
+          width: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.3);
+          border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.5);
+        }
+        
+        /* Prevent scroll when typing */
+        .chat-container {
+          scroll-behavior: smooth;
+        }
+        
+        /* Video mirror fix */
+        video {
+          transform: scaleX(1) !important;
+        }
+        
+        /* Glassmorphism effect */
+        .backdrop-blur-lg {
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+        }
+        
+        .backdrop-blur-sm {
+          backdrop-filter: blur(4px);
+          -webkit-backdrop-filter: blur(4px);
+        }
+        
+        /* Enhanced hover effects */
+        .transform {
+          transition: transform 0.2s ease-in-out;
+        }
+        
+        .hover\\:scale-105:hover {
+          transform: scale(1.05);
+        }
         
         /* Gradient animations */
         .bg-gradient-to-br {
           background-size: 400% 400%;
           animation: gradient 15s ease infinite;
         }
+        
         @keyframes gradient {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
