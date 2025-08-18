@@ -42,7 +42,7 @@ type UserPlan = {
   };
 };
 
-const SOCKET_URL = "wss://ws.purrassist.com";
+const SOCKET_URL = "https://ws.purrassist.com";
 
 const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
