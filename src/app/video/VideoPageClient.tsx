@@ -61,7 +61,6 @@ export default function VideoPageClient() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const candidateBufferRef = useRef<RTCIceCandidateInit[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // UI/State
   const [statusMessage, setStatusMessage] = useState("Initializing...");
@@ -74,7 +73,6 @@ export default function VideoPageClient() {
   const [showVideo, setShowVideo] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [cameraReady, setCameraReady] = useState(false);
 
   // Plan-related
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
@@ -88,6 +86,17 @@ export default function VideoPageClient() {
   const [pendingStart, setPendingStart] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // --- keep latest values without re-running socket effect ---
+  const showVideoRef = useRef(showVideo);
+  useEffect(() => { showVideoRef.current = showVideo; }, [showVideo]);
+
+  const selectedMatchingOptionRef = useRef(selectedMatchingOption);
+  useEffect(() => { selectedMatchingOptionRef.current = selectedMatchingOption; }, [selectedMatchingOption]);
+
+  const pendingStartRef = useRef(pendingStart);
+  useEffect(() => { pendingStartRef.current = pendingStart; }, [pendingStart]);
+  // -----------------------------------------------------------
+
   // Detect mobile/tablet
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth <= 768);
@@ -98,10 +107,8 @@ export default function VideoPageClient() {
 
   // Auto-scroll chat only when new messages arrive, not when typing
   useEffect(() => {
-    if (!isTyping && chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages, isTyping]);
+    if (!isTyping) chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   // Toast auto-hide
   useEffect(() => {
@@ -185,38 +192,33 @@ export default function VideoPageClient() {
     return options;
   };
 
-  // Initialize camera once when video is enabled
+  // Camera lifecycle
+  useEffect(() => {
+    if (showVideo) initializeCamera();
+    else stopCamera();
+  }, [showVideo]);
+
   const initializeCamera = async () => {
     try {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
       }
-      
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          width: { ideal: 640, max: 1280 }, 
-          height: { ideal: 480, max: 720 }, 
-          facingMode: "user" 
-        },
+        video: { width: { ideal: 640, max: 1280 }, height: { ideal: 480, max: 720 }, facingMode: "user" },
         audio: true,
       });
-      
       localStreamRef.current = stream;
-      setCameraReady(true);
-      
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        // Fix mirror issue: show original image, not mirrored
-        localVideoRef.current.style.transform = "scaleX(-1)";
+        // Mirror fix: original orientation
+        localVideoRef.current.style.transform = "none";
         localVideoRef.current.play().catch(() => {});
       }
-      
       setStatusMessage("Camera ready. Choose your matching preference and click 'Start'...");
     } catch (err) {
       console.error("Camera error:", err);
       setStatusMessage("Camera permission required. You can still use text chat.");
       setShowVideo(false);
-      setCameraReady(false);
     }
   };
 
@@ -225,37 +227,10 @@ export default function VideoPageClient() {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-    setCameraReady(false);
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
   };
 
-  // Camera lifecycle - only initialize when showVideo changes
-  useEffect(() => {
-    if (showVideo && !cameraReady) {
-      initializeCamera();
-    } else if (!showVideo && cameraReady) {
-      stopCamera();
-    }
-  }, [showVideo]);
-
-  // Effect to handle video toggle during active connection
-  useEffect(() => {
-    // If video is enabled during an active connection, start peer connection
-    if (showVideo && isConnected && partnerId && !pcRef.current && localStreamRef.current) {
-      console.log("Video enabled during active connection, starting peer");
-      startPeer(partnerId, role || "initiator");
-    }
-    
-    // If video is disabled during active connection, stop peer connection
-    if (!showVideo && pcRef.current) {
-      console.log("Video disabled, closing peer connection");
-      teardownPeer();
-    }
-  }, [showVideo, isConnected, partnerId, role, cameraReady]);
-
-  // SOCKET — stable connection without camera dependencies
+  // SOCKET — keep stable (do not depend on showVideo/selected option)
   useEffect(() => {
     if (!userPlan || !session?.user?.email) return;
 
@@ -273,8 +248,16 @@ export default function VideoPageClient() {
     socket.on("registrationSuccess", () => {
       setIsRegistered(true);
       setStatusMessage("Ready to start! Choose your matching preference.");
-      if (pendingStart && selectedMatchingOption) {
-        startMatching();
+      if (pendingStartRef.current && selectedMatchingOptionRef.current) {
+        const opt = selectedMatchingOptionRef.current;
+        const genderFilter = opt.includes("_male") ? "male" : opt.includes("_female") ? "female" : "any";
+        socket.emit("findPartner", {
+          email: session.user!.email!,
+          matchingPreference: opt,
+          preferredGender: genderFilter !== "any" ? genderFilter : undefined,
+        });
+        setPendingStart(false);
+        setStatusMessage("Looking for someone you can chat with...");
       }
     });
 
@@ -301,21 +284,8 @@ export default function VideoPageClient() {
         { id: Date.now().toString(), text: "You're now chatting with a random stranger. Say hi!", sender: "stranger", timestamp: new Date() },
       ]);
 
-      // Always start peer connection if video is enabled, even if camera isn't ready yet
-      if (showVideo) {
-        // If camera isn't ready but video is enabled, try to initialize it
-        if (!cameraReady || !localStreamRef.current) {
-          try {
-            await initializeCamera();
-          } catch (err) {
-            console.error("Failed to initialize camera for peer connection:", err);
-          }
-        }
-        
-        // Start peer connection if we now have a stream
-        if (localStreamRef.current) {
-          await startPeer(pid, role);
-        }
+      if (showVideoRef.current && localStreamRef.current) {
+        await startPeer(pid, role);
       }
     });
 
@@ -336,30 +306,13 @@ export default function VideoPageClient() {
     socket.on("offer", async ({ sdp, caller }) => {
       setPartnerId(caller);
       setRole("answerer");
-      
-      // Ensure we have camera ready for video call
-      if (showVideo && (!cameraReady || !localStreamRef.current)) {
-        try {
-          await initializeCamera();
-        } catch (err) {
-          console.error("Failed to initialize camera for offer:", err);
-        }
-      }
-      
-      if (!pcRef.current && showVideo && localStreamRef.current) {
-        await startPeer(caller, "answerer");
-      }
-      
+      if (!pcRef.current && showVideoRef.current) await startPeer(caller, "answerer");
       if (pcRef.current) {
-        try {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          await drainCandidateBuffer();
-          const answer = await pcRef.current.createAnswer();
-          await pcRef.current.setLocalDescription(answer);
-          socket.emit("answer", { sdp: answer, target: caller });
-        } catch (err) {
-          console.error("Error handling offer:", err);
-        }
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+        await drainCandidateBuffer();
+        const answer = await pcRef.current.createAnswer();
+        await pcRef.current.setLocalDescription(answer);
+        socket.emit("answer", { sdp: answer, target: caller });
       }
     });
 
@@ -395,6 +348,7 @@ export default function VideoPageClient() {
       socket.disconnect();
       socketRef.current = null;
       teardownPeer();
+      stopCamera();
       setIsRegistered(false);
       setHasEmittedRegister(false);
       setPendingStart(false);
@@ -403,67 +357,32 @@ export default function VideoPageClient() {
 
   // WebRTC helpers
   async function startPeer(partner: string, myRole: Role) {
-    if (!showVideo || !localStreamRef.current) {
-      console.log("Skipping peer connection - video disabled or no stream");
-      return;
-    }
-    
-    if (pcRef.current) {
-      console.log("Closing existing peer connection");
-      pcRef.current.close();
-    }
+    if (!localStreamRef.current || !showVideoRef.current) return;
+    if (pcRef.current) pcRef.current.close();
 
-    console.log(`Starting peer connection as ${myRole} with partner ${partner}`);
     pcRef.current = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    // Add local stream tracks
-    localStreamRef.current.getTracks().forEach((track) => {
-      if (pcRef.current && localStreamRef.current) {
-        console.log(`Adding ${track.kind} track to peer connection`);
-        pcRef.current.addTrack(track, localStreamRef.current);
-      }
+    localStreamRef.current.getTracks().forEach((t) => {
+      if (pcRef.current && localStreamRef.current) pcRef.current.addTrack(t, localStreamRef.current);
     });
 
-    // Handle incoming remote stream
     pcRef.current.ontrack = (e) => {
-      console.log("Received remote track:", e.track.kind);
       if (remoteVideoRef.current && e.streams[0]) {
-        console.log("Setting remote video stream");
         remoteVideoRef.current.srcObject = e.streams[0];
-        remoteVideoRef.current.play().catch((err) => {
-          console.error("Error playing remote video:", err);
-        });
+        remoteVideoRef.current.play().catch(() => {});
       }
     };
 
-    // Handle ICE candidates
     pcRef.current.onicecandidate = (e) => {
       if (e.candidate && socketRef.current) {
-        console.log("Sending ICE candidate");
         socketRef.current.emit("ice-candidate", { candidate: e.candidate.toJSON(), target: partner });
       }
     };
 
-    // Connection state logging
-    pcRef.current.onconnectionstatechange = () => {
-      console.log("Connection state:", pcRef.current?.connectionState);
-    };
-
-    pcRef.current.oniceconnectionstatechange = () => {
-      console.log("ICE connection state:", pcRef.current?.iceConnectionState);
-    };
-
-    // Create and send offer if initiator
     if (myRole === "initiator") {
-      try {
-        console.log("Creating offer as initiator");
-        const offer = await pcRef.current.createOffer();
-        await pcRef.current.setLocalDescription(offer);
-        socketRef.current!.emit("offer", { sdp: offer, target: partner });
-        console.log("Offer sent");
-      } catch (err) {
-        console.error("Error creating/sending offer:", err);
-      }
+      const offer = await pcRef.current.createOffer();
+      await pcRef.current.setLocalDescription(offer);
+      socketRef.current!.emit("offer", { sdp: offer, target: partner });
     }
   }
 
@@ -496,25 +415,6 @@ export default function VideoPageClient() {
     setSelectedMatchingOption(optionType);
   }
 
-  // Start matching helper
-  function startMatching() {
-    if (!selectedMatchingOption || !session?.user?.email || !socketRef.current) return;
-
-    const genderFilter = selectedMatchingOption.includes("_male")
-      ? "male"
-      : selectedMatchingOption.includes("_female")
-      ? "female"
-      : "any";
-
-    socketRef.current.emit("findPartner", {
-      email: session.user.email,
-      matchingPreference: selectedMatchingOption,
-      preferredGender: genderFilter !== "any" ? genderFilter : undefined,
-    });
-    setStatusMessage("Looking for someone you can chat with...");
-    setPendingStart(false);
-  }
-
   // Start flow
   function handleStart() {
     if (!selectedMatchingOption || !session?.user?.email) return;
@@ -545,7 +445,18 @@ export default function VideoPageClient() {
       return;
     }
 
-    startMatching();
+    const genderFilter = selectedMatchingOption.includes("_male")
+      ? "male"
+      : selectedMatchingOption.includes("_female")
+      ? "female"
+      : "any";
+
+    socket.emit("findPartner", {
+      email: session.user.email,
+      matchingPreference: selectedMatchingOption,
+      preferredGender: genderFilter !== "any" ? genderFilter : undefined,
+    });
+    setStatusMessage("Looking for someone you can chat with...");
   }
 
   function handleNext() {
@@ -653,574 +564,372 @@ export default function VideoPageClient() {
         </div>
       )}
 
-      {/* Main Container - Mobile optimized */}
-      <div className={`relative z-10 ${isMobile ? "flex flex-col h-screen" : "p-6 min-h-screen flex gap-6"} max-w-7xl mx-auto`}>
-        
-        {/* Mobile Layout */}
-        {isMobile ? (
-          <>
-            {/* Video Section - Mobile */}
-            {showVideo && (
-              <div className="bg-white/10 backdrop-blur-lg border-b border-white/20 p-3">
-                <div className="flex gap-2 h-48">
-                  {/* Local Video */}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                      <span className="text-white/80 text-xs font-medium">You</span>
-                    </div>
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      className="w-full h-40 bg-gray-900 rounded-lg object-cover"
-                      style={{ transform: "scaleX(-1)" }}
-                    />
-                  </div>
-
-                  {/* Remote Video */}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                      <span className="text-white/80 text-xs font-medium">Stranger</span>
-                    </div>
-                    <video
-                      ref={remoteVideoRef}
-                      autoPlay
-                      playsInline
-                      className="w-full h-40 bg-gray-900 rounded-lg object-cover"
-                    />
-                  </div>
+      {/* Main Container */}
+      <div className={`relative z-10 ${isMobile ? "p-4 space-y-4" : "p-6 min-h-screen flex gap-6"} max-w-7xl mx-auto`}>
+        {/* Video Section */}
+        {showVideo && (
+          <div className={`${isMobile ? "order-2" : "flex-none w-[560px]"} bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl`}>
+            <div className={`${isMobile ? "flex gap-4" : "space-y-4"}`}>
+              {/* Local Video */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-white/80 text-sm font-medium">You</span>
+                </div>
+                <div className="relative group transition-transform duration-300 hover:scale-105">
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover local-video`}
+                    style={{ transform: "none" }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
                 </div>
               </div>
-            )}
 
-            {/* Chat Section - Mobile */}
-            <div className="flex-1 bg-white/10 backdrop-blur-lg flex flex-col min-h-0">
-              {/* Status Header */}
-              <div className="p-3 border-b border-white/20">
+              {/* Remote Video */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                  <span className="text-white/80 text-sm font-medium">Stranger</span>
+                </div>
+                <div className="relative group transition-transform duration-300 hover:scale-105">
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    className={`w-full ${isMobile ? "h-48" : "h-72"} bg-gray-900 rounded-xl object-cover`}
+                    style={{ transform: "none" }}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Chat Section */}
+        <div className={`${isMobile ? "order-1" : "flex-1"} bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col ${isMobile ? "min-h-[500px]" : "min-h-[600px]"}`}>
+          {/* Status Header */}
+          <div className={`p-4 border-b border-white/20`}>
+            <div
+              className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
+                isConnected ? "bg-green-500/20 border border-green-400/30" : "bg-orange-500/20 border border-orange-400/30"
+              }`}
+            >
+              <div className={`w-3 h-3 rounded-full animate-pulse ${isConnected ? "bg-green-400" : "bg-orange-400"}`}></div>
+              <span className="text-white font-medium text-sm">{statusMessage}</span>
+            </div>
+          </div>
+
+          {/* Messages Area */}
+          <div className="flex-1 p-4 overflow-y-auto space-y-3 chat-scroll" style={{ minHeight: isMobile ? "300px" : "400px" }}>
+            {messages.map((msg, index) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.sender === "you" ? "justify-end" : "justify-start"} animate-fade-in`}
+                style={{ animationDelay: `${index * 0.1}s` }}
+              >
                 <div
-                  className={`flex items-center gap-2 p-2 rounded-lg transition-all duration-300 ${
-                    isConnected ? "bg-green-500/20 border border-green-400/30" : "bg-orange-500/20 border border-orange-400/30"
+                  className={`max-w-[80%] p-3 rounded-2xl border transition-all duration-300 ${
+                    msg.sender === "you"
+                      ? "bg-[#6BBBA1] text-slate-900 border-[#6BBBA1]/60 rounded-br-md"
+                      : "bg-[#4A6FA5] text-white border-[#4A6FA5]/70 rounded-bl-md"
                   }`}
                 >
-                  <div className={`w-2 h-2 rounded-full animate-pulse ${isConnected ? "bg-green-400" : "bg-orange-400"}`}></div>
-                  <span className="text-white font-medium text-xs">{statusMessage}</span>
+                  <div className="text-[10px] font-medium mb-1" style={{ color: "#94A3B8" }}>
+                    {msg.sender === "you" ? "You" : "Stranger"}
+                  </div>
+                  <div className="text-sm leading-relaxed msg-text">{msg.text}</div>
                 </div>
               </div>
+            ))}
 
-              {/* Messages Area - Mobile */}
-              <div 
-                ref={chatContainerRef}
-                className="flex-1 p-3 overflow-y-auto space-y-2 chat-scroll min-h-0"
-              >
-                {messages.map((msg, index) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.sender === "you" ? "justify-end" : "justify-start"} animate-fade-in`}
-                    style={{ animationDelay: `${index * 0.1}s` }}
-                  >
-                    <div
-                      className={`max-w-[85%] p-2.5 rounded-xl border transition-all duration-300 ${
-                        msg.sender === "you"
-                          ? "bg-[#6BBBA1] text-slate-900 border-[#6BBBA1]/60 rounded-br-sm"
-                          : "bg-[#4A6FA5] text-white border-[#4A6FA5]/70 rounded-bl-sm"
-                      }`}
-                    >
-                      <div className="text-xs font-medium mb-1" style={{ color: msg.sender === "you" ? "#475569" : "#94A3B8" }}>
-                        {msg.sender === "you" ? "You" : "Stranger"}
-                      </div>
-                      <div className="text-sm leading-relaxed msg-text">{msg.text}</div>
-                    </div>
-                  </div>
-                ))}
-
-                {strangerTyping && (
-                  <div className="flex justify-start animate-fade-in">
-                    <div className="bg-[#4A6FA5] text-white border border-[#4A6FA5]/70 p-2.5 rounded-xl rounded-bl-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/90 text-xs">Stranger is typing</span>
-                        <div className="flex gap-1">
-                          <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
-                          <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-                          <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-
-              {/* Message Input - Mobile */}
-              <div className="p-3 border-t border-white/20">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={messageInput}
-                    onChange={(e) => {
-                      setMessageInput(e.target.value);
-                      if (e.target.value && !isTyping) {
-                        handleTyping();
-                      }
-                    }}
-                    onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                    placeholder={isConnected ? "Type your message..." : "Connect to start chatting"}
-                    disabled={!isConnected}
-                    className="flex-1 p-2.5 bg-[#F1F5F9] border border-slate-300 rounded-lg text-slate-900 placeholder-slate-500 focus:outline-none focus:border-[#4A6FA5] transition-all duration-300 text-sm"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={!isConnected || !messageInput.trim()}
-                    className={`px-4 py-2.5 rounded-lg font-medium transition-all duration-300 text-sm ${
-                      isConnected && messageInput.trim()
-                        ? "bg-[#4A6FA5] text-white shadow-lg hover:brightness-110"
-                        : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
-                    }`}
-                  >
-                    ✈️
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Controls Section - Mobile */}
-            <div className="p-3 bg-white/5 border-t border-white/20 space-y-3">
-              {/* Action Buttons */}
-              {!isConnected ? (
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleStart}
-                    disabled={!selectedMatchingOption}
-                    className={`flex-1 p-2.5 rounded-lg font-bold text-sm transition-all duration-300 ${
-                      selectedMatchingOption ? "bg-[#6BBBA1] text-slate-900 shadow-lg hover:brightness-110" : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
-                    }`}
-                  >
-                    🚀 Start
-                  </button>
-                  <button
-                    onClick={() => setShowVideo(!showVideo)}
-                    className={`px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-300 ${
-                      showVideo ? "bg-[#4A6FA5] text-white" : "bg-gray-600 text-white"
-                    }`}
-                  >
-                    📹
-                  </button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleNext}
-                    className="flex-1 p-2.5 rounded-lg font-bold text-sm bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 hover:scale-105 shadow-lg"
-                  >
-                    ⏭️ Next
-                  </button>
-                  <button
-                    onClick={handleEnd}
-                    className="px-4 py-2.5 rounded-lg font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 hover:scale-105 shadow-lg"
-                  >
-                    🛑
-                  </button>
-                </div>
-              )}
-
-              {/* Quick Matching Options */}
-              {userPlan && (
-                <div className="flex gap-1 overflow-x-auto pb-1">
-                  {userPlan.matchingOptions.slice(0, 3).map((option) => (
-                    <button
-                      key={option.type}
-                      onClick={() => handleOptionSelect(option.type, option)}
-                      disabled={option.disabled}
-                      className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-300 ${
-                        option.disabled
-                          ? "bg-gray-500/20 text-gray-400 cursor-not-allowed"
-                          : selectedMatchingOption === option.type
-                          ? "bg-[#4A6FA5] text-white shadow-lg"
-                          : "bg-white/10 text-white hover:bg-white/20"
-                      }`}
-                    >
-                      <span className="mr-1">{option.icon}</span>
-                      {option.label.split(' ').slice(0, 2).join(' ')}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          // Desktop Layout
-          <>
-            {/* Video Section */}
-            {showVideo && (
-              <div className="flex-none w-[560px] bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 shadow-2xl">
-                <div className="space-y-4">
-                  {/* Local Video */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                      <span className="text-white/80 text-sm font-medium">You</span>
-                    </div>
-                    <div className="relative group transition-transform duration-300 hover:scale-105">
-                      <video
-                        ref={localVideoRef}
-                        autoPlay
-                        muted
-                        playsInline
-                        className="w-full h-72 bg-gray-900 rounded-xl object-cover"
-                        style={{ transform: "scaleX(-1)" }}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
-                    </div>
-                  </div>
-
-                  {/* Remote Video */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                      <span className="text-white/80 text-sm font-medium">Stranger</span>
-                    </div>
-                    <div className="relative group transition-transform duration-300 hover:scale-105">
-                      <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        playsInline
-                        className="w-full h-72 bg-gray-900 rounded-xl object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-xl pointer-events-none"></div>
+            {strangerTyping && (
+              <div className="flex justify-start animate-fade-in">
+                <div className="bg-[#4A6FA5] text-white border border-[#4A6FA5]/70 p-3 rounded-2xl rounded-bl-md">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/90 text-sm">Stranger is typing</span>
+                    <div className="flex gap-1">
+                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
+                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
+                      <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
                     </div>
                   </div>
                 </div>
               </div>
             )}
+            <div ref={chatEndRef} />
+          </div>
 
-            {/* Chat Section */}
-            <div className="flex-1 bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 shadow-2xl flex flex-col min-h-[600px]">
-              {/* Status Header */}
-              <div className="p-4 border-b border-white/20">
-                <div
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-300 ${
-                    isConnected ? "bg-green-500/20 border border-green-400/30" : "bg-orange-500/20 border border-orange-400/30"
-                  }`}
-                >
-                  <div className={`w-3 h-3 rounded-full animate-pulse ${isConnected ? "bg-green-400" : "bg-orange-400"}`}></div>
-                  <span className="text-white font-medium text-sm">{statusMessage}</span>
-                </div>
-              </div>
-
-              {/* Messages Area */}
-              <div 
-                ref={chatContainerRef}
-                className="flex-1 p-4 overflow-y-auto space-y-3 chat-scroll"
-                style={{ minHeight: "400px" }}
+          {/* Message Input */}
+          <div className="p-4 border-t border-white/20">
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={messageInput}
+                onChange={(e) => {
+                  setMessageInput(e.target.value);
+                  if (e.target.value && !isTyping) {
+                    handleTyping();
+                  }
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                placeholder={isConnected ? "Type your message..." : "Connect to start chatting"}
+                disabled={!isConnected}
+                className="flex-1 p-3 bg-[#F1F5F9] border border-slate-300 rounded-xl text-slate-900 placeholder-slate-500 focus:outline-none focus:border-[#4A6FA5] transition-all duration-300"
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!isConnected || !messageInput.trim()}
+                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
+                  isConnected && messageInput.trim()
+                    ? "bg-[#4A6FA5] text-white shadow-lg hover:shadow-xl hover:brightness-110"
+                    : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
+                }`}
               >
-                {messages.map((msg, index) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.sender === "you" ? "justify-end" : "justify-start"} animate-fade-in`}
-                    style={{ animationDelay: `${index * 0.1}s` }}
-                  >
-                    <div
-                      className={`max-w-[80%] p-3 rounded-2xl border transition-all duration-300 ${
-                        msg.sender === "you"
-                          ? "bg-[#6BBBA1] text-slate-900 border-[#6BBBA1]/60 rounded-br-md"
-                          : "bg-[#4A6FA5] text-white border-[#4A6FA5]/70 rounded-bl-md"
-                      }`}
-                    >
-                      <div className="text-[10px] font-medium mb-1" style={{ color: "#94A3B8" }}>
-                        {msg.sender === "you" ? "You" : "Stranger"}
-                      </div>
-                      <div className="text-sm leading-relaxed msg-text">{msg.text}</div>
-                    </div>
-                  </div>
-                ))}
+                <span className="mr-1">✈️</span>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
 
-                {strangerTyping && (
-                  <div className="flex justify-start animate-fade-in">
-                    <div className="bg-[#4A6FA5] text-white border border-[#4A6FA5]/70 p-3 rounded-2xl rounded-bl-md">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/90 text-sm">Stranger is typing</span>
-                        <div className="flex gap-1">
-                          <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
-                          <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
-                          <div className="w-1 h-1 bg-white/80 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-
-              {/* Message Input */}
-              <div className="p-4 border-t border-white/20">
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={messageInput}
-                    onChange={(e) => {
-                      setMessageInput(e.target.value);
-                      if (e.target.value && !isTyping) {
-                        handleTyping();
-                      }
-                    }}
-                    onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                    placeholder={isConnected ? "Type your message..." : "Connect to start chatting"}
-                    disabled={!isConnected}
-                    className="flex-1 p-3 bg-[#F1F5F9] border border-slate-300 rounded-xl text-slate-900 placeholder-slate-500 focus:outline-none focus:border-[#4A6FA5] transition-all duration-300"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={!isConnected || !messageInput.trim()}
-                    className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
-                      isConnected && messageInput.trim()
-                        ? "bg-[#4A6FA5] text-white shadow-lg hover:shadow-xl hover:brightness-110"
-                        : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
-                    }`}
-                  >
-                    <span className="mr-1">✈️</span>
-                    Send
-                  </button>
+        {/* Controls Section */}
+        <div className={`${isMobile ? "order-3 space-y-4" : "flex-none w-80 space-y-4 overflow-y-auto max-h-screen"}`}>
+          {/* Plan Info Card */}
+          {userPlan && (
+            <div
+              className={`p-6 rounded-2xl border shadow-2xl transition-all duration-300 hover:scale-105 ${
+                userPlan.planStatus.isActive ? "bg-gradient-to-br from-emerald-500/90 to-teal-600/90 border-emerald-400/50" : "bg-white/10 backdrop-blur-lg border-white/20"
+              }`}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`p-2 rounded-lg ${userPlan.planStatus.isActive ? "bg-white/20" : "bg-purple-500/20"}`}>
+                  <span className="text-xl">{userPlan.planStatus.isActive ? "💎" : "🆓"}</span>
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-lg">{userPlan.planStatus.planName}</h3>
+                  <p className="text-white/70 text-sm">{userPlan.user.college}</p>
                 </div>
               </div>
+
+              {userPlan.planStatus.daysRemaining !== undefined && userPlan.planStatus.daysRemaining !== null && (
+                <div className="bg-white/10 rounded-lg p-2 mt-3">
+                  <p className="text-white/80 text-xs text-center">
+                    <span className="font-medium">{userPlan.planStatus.daysRemaining}</span> days remaining
+                  </p>
+                </div>
+              )}
             </div>
+          )}
 
-            {/* Controls Section */}
-            <div className="flex-none w-80 space-y-4 overflow-y-auto max-h-screen">
-              {/* Plan Info Card */}
-              {userPlan && (
-                <div
-                  className={`p-6 rounded-2xl border shadow-2xl transition-all duration-300 hover:scale-105 ${
-                    userPlan.planStatus.isActive ? "bg-gradient-to-br from-emerald-500/90 to-teal-600/90 border-emerald-400/50" : "bg-white/10 backdrop-blur-lg border-white/20"
-                  }`}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`p-2 rounded-lg ${userPlan.planStatus.isActive ? "bg-white/20" : "bg-purple-500/20"}`}>
-                      <span className="text-xl">{userPlan.planStatus.isActive ? "💎" : "🆓"}</span>
-                    </div>
-                    <div>
-                      <h3 className="text-white font-bold text-lg">{userPlan.planStatus.planName}</h3>
-                      <p className="text-white/70 text-sm">{userPlan.user.college}</p>
-                    </div>
-                  </div>
+          {/* Matching Preferences */}
+          {userPlan && (
+            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
+              <h4 className="text-white font-bold text-base mb-3 flex items-center gap-2">
+                <span className="text-lg">🎯</span>
+                Matching Preferences
+              </h4>
 
-                  {userPlan.planStatus.daysRemaining !== undefined && userPlan.planStatus.daysRemaining !== null && (
-                    <div className="bg-white/10 rounded-lg p-2 mt-3">
-                      <p className="text-white/80 text-xs text-center">
-                        <span className="font-medium">{userPlan.planStatus.daysRemaining}</span> days remaining
-                      </p>
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                {userPlan.matchingOptions.map((option) => (
+                  <label
+                    key={option.type}
+                    className={`block p-2.5 rounded-lg border cursor-pointer transition-all duration-300 transform hover:scale-105 ${
+                      option.disabled
+                        ? "bg-gray-500/20 border-gray-400/30 cursor-not-allowed opacity-60"
+                        : selectedMatchingOption === option.type
+                        ? "bg-[#4A6FA5]/30 border-[#4A6FA5]/50 shadow-lg"
+                        : "bg-white/5 border-white/20 hover:bg-white/10"
+                    }`}
+                    onClick={() => handleOptionSelect(option.type, option)}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="radio"
+                        name="matchingOption"
+                        value={option.type}
+                        checked={selectedMatchingOption === option.type}
+                        disabled={option.disabled}
+                        onChange={() => {}}
+                        className="mt-0.5 text-blue-500 focus:ring-blue-400 focus:ring-offset-0 w-3 h-3"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-base">{option.icon}</span>
+                          <span className="text-white font-medium text-xs leading-tight">{option.label}</span>
+                        </div>
+                        <p className="text-white/70 text-xs leading-relaxed">{option.description}</p>
+
+                        {option.disabled && (
+                          <div className="mt-1.5 flex items-center gap-1">
+                            <span className="text-red-400 text-xs">🔒</span>
+                            <span className="text-red-400 text-xs font-medium">{option.disabledReason}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {/* Plan Features Summary */}
+              <div className="mt-3 p-2.5 bg-white/5 rounded-lg border border-white/10">
+                <div className="text-white/80 text-xs font-medium mb-1.5">Your Plan Features:</div>
+                <div className="text-white/60 text-xs leading-relaxed">
+                  {userPlan.user.planType === "free" && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Same college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-red-400">❌</span> Inter-college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-red-400">❌</span> Gender filtering
+                      </div>
+                    </div>
+                  )}
+                  {userPlan.user.planType === "intercollege" && userPlan.user.hasActivePlan && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Same college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Inter-college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-red-400">❌</span> Gender filtering
+                      </div>
+                    </div>
+                  )}
+                  {userPlan.user.planType === "gender" && userPlan.user.hasActivePlan && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Same college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Inter-college matching
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span>
+                      </div>
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* Matching Preferences */}
-              {userPlan && (
-                <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
-                  <h4 className="text-white font-bold text-base mb-3 flex items-center gap-2">
-                    <span className="text-lg">🎯</span>
-                    Matching Preferences
-                  </h4>
-
-                  <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
-                    {userPlan.matchingOptions.map((option) => (
-                      <label
-                        key={option.type}
-                        className={`block p-2.5 rounded-lg border cursor-pointer transition-all duration-300 transform hover:scale-105 ${
-                          option.disabled
-                            ? "bg-gray-500/20 border-gray-400/30 cursor-not-allowed opacity-60"
-                            : selectedMatchingOption === option.type
-                            ? "bg-[#4A6FA5]/30 border-[#4A6FA5]/50 shadow-lg"
-                            : "bg-white/5 border-white/20 hover:bg-white/10"
-                        }`}
-                        onClick={() => handleOptionSelect(option.type, option)}
-                      >
-                        <div className="flex items-start gap-2.5">
-                          <input
-                            type="radio"
-                            name="matchingOption"
-                            value={option.type}
-                            checked={selectedMatchingOption === option.type}
-                            disabled={option.disabled}
-                            onChange={() => {}}
-                            className="mt-0.5 text-blue-500 focus:ring-blue-400 focus:ring-offset-0 w-3 h-3"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="text-base">{option.icon}</span>
-                              <span className="text-white font-medium text-xs leading-tight">{option.label}</span>
-                            </div>
-                            <p className="text-white/70 text-xs leading-relaxed">{option.description}</p>
-
-                            {option.disabled && (
-                              <div className="mt-1.5 flex items-center gap-1">
-                                <span className="text-red-400 text-xs">🔒</span>
-                                <span className="text-red-400 text-xs font-medium">{option.disabledReason}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-
-                  {/* Plan Features Summary */}
-                  <div className="mt-3 p-2.5 bg-white/5 rounded-lg border border-white/10">
-                    <div className="text-white/80 text-xs font-medium mb-1.5">Your Plan Features:</div>
-                    <div className="text-white/60 text-xs leading-relaxed">
-                      {userPlan.user.planType === "free" && (
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-green-400">✅</span> Same college matching
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-red-400">❌</span> Inter-college matching
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-red-400">❌</span> Gender filtering
-                          </div>
-                        </div>
-                      )}
-                      {userPlan.user.planType === "intercollege" && userPlan.user.hasActivePlan && (
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-green-400">✅</span> Same college matching
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-green-400">✅</span> Inter-college matching
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-red-400">❌</span> Gender filtering
-                          </div>
-                        </div>
-                      )}
-                      {userPlan.user.planType === "gender" && userPlan.user.hasActivePlan && (
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-green-400">✅</span> Same college matching
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-green-400">✅</span> Inter-college matching
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-green-400">✅</span> Gender filtering <span className="text-purple-400 text-xs">(Premium!)</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
-                {!isConnected ? (
-                  <button
-                    onClick={handleStart}
-                    disabled={!selectedMatchingOption}
-                    className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 ${
-                      selectedMatchingOption ? "bg-[#6BBBA1] text-slate-900 shadow-lg hover:shadow-xl hover:brightness-110" : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
-                    }`}
-                  >
-                    <span className="mr-2 text-lg">🚀</span>
-                    Start Chatting
-                  </button>
-                ) : (
-                  <div className="space-y-2.5">
-                    <button
-                      onClick={handleNext}
-                      className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
-                    >
-                      <span className="mr-2 text-lg">⏭️</span>
-                      Next Person
-                    </button>
-                    <button
-                      onClick={handleEnd}
-                      className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
-                    >
-                      <span className="mr-2">🛑</span>
-                      End Chat
-                    </button>
-                  </div>
-                )}
-
-                {/* Video Toggle */}
-                <label className="flex items-center gap-2.5 mt-3 p-2.5 rounded-xl bg-white/5 border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/10">
-                  <div className="relative">
-                    <input type="checkbox" checked={showVideo} onChange={(e) => setShowVideo(e.target.checked)} className="sr-only" />
-                    <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-[#4A6FA5]" : "bg-gray-600"}`}>
-                      <div className={`w-4 h-4 bg-white rounded-full transition-all duration-300 transform ${showVideo ? "translate-x-5" : "translate-x-0.5"} mt-0.5`}></div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-lg">📹</span>
-                    <span className="text-white font-medium text-sm">Enable Video Chat</span>
-                  </div>
-                </label>
-              </div>
-
-              {/* Info Panel */}
-              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
-                <h3 className="text-white font-bold text-base mb-3 flex items-center gap-2">
-                  <span className="text-lg">💡</span>
-                  How it works
-                </h3>
-
-                <div className="space-y-1.5 text-white/80 text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-blue-400">•</span>
-                    <span>Choose your matching preference</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-green-400">•</span>
-                    <span>Click "Start" to find someone</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-purple-400">•</span>
-                    <span>Chat via text or enable video</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-orange-400">•</span>
-                    <span>Use "Next" to find a new person</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-red-400">•</span>
-                    <span>Click "End" to stop completely</span>
-                  </div>
-                </div>
-
-                <div className="mt-3 p-2.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-400/30">
-                  <p className="text-white/90 text-xs text-center font-medium">
-                    <span className="text-base mr-1">🎉</span>
-                    Be respectful and have fun!
-                  </p>
-                </div>
-
-                {/* Plan-specific messages */}
-                {userPlan?.planStatus.isActive && userPlan.planStatus.planName !== "Free Plan" && (
-                  <div className="mt-3 p-2.5 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-lg border border-emerald-400/30">
-                    <p className="text-white/90 text-xs text-center">
-                      <span className="text-base mr-1">💎</span>
-                      You have {userPlan.planStatus.planName}!
-                      {userPlan.user.planType === "gender" && " Filter by gender in your college and inter-college!"}
-                      {userPlan.user.planType === "intercollege" && " Match with any college!"}
-                    </p>
-                  </div>
-                )}
-
-                {(!userPlan?.user.hasActivePlan || userPlan.user.planType === "free") && (
-                  <div className="mt-3 p-2.5 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-lg border border-yellow-400/30">
-                    <p className="text-white/90 text-xs text-center">
-                      <span className="text-base mr-1">⭐</span>
-                      Want more options? Upgrade to unlock inter-college matching and gender filtering!
-                    </p>
-                  </div>
-                )}
               </div>
             </div>
-          </>
-        )}
+          )}
+
+          {/* Action Buttons */}
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
+            {!isConnected ? (
+              <button
+                onClick={handleStart}
+                disabled={!selectedMatchingOption}
+                className={`w-full p-3 rounded-xl font-bold text-base transition-all duration-300 ${
+                  selectedMatchingOption ? "bg-[#6BBBA1] text-slate-900 shadow-lg hover:shadow-xl hover:brightness-110" : "bg-gray-500/50 text-gray-300 cursor-not-allowed"
+                }`}
+              >
+                <span className="mr-2 text-lg">🚀</span>
+                Start Chatting
+              </button>
+            ) : (
+              <div className="space-y-2.5">
+                <button
+                  onClick={handleNext}
+                  className="w-full p-3 rounded-xl font-bold text-base bg-gradient-to-r from-orange-500 to-red-600 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
+                >
+                  <span className="mr-2 text-lg">⏭️</span>
+                  Next Person
+                </button>
+                <button
+                  onClick={handleEnd}
+                  className="w-full p-2.5 rounded-xl font-medium text-sm bg-gradient-to-r from-gray-600 to-gray-700 text-white transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl"
+                >
+                  <span className="mr-2">🛑</span>
+                  End Chat
+                </button>
+              </div>
+            )}
+
+            {/* Video Toggle */}
+            <label className="flex items-center gap-2.5 mt-3 p-2.5 rounded-xl bg-white/5 border border-white/20 cursor-pointer transition-all duration-300 hover:bg-white/10">
+              <div className="relative">
+                <input type="checkbox" checked={showVideo} onChange={(e) => setShowVideo(e.target.checked)} className="sr-only" />
+                <div className={`w-10 h-5 rounded-full transition-all duration-300 ${showVideo ? "bg-[#4A6FA5]" : "bg-gray-600"}`}>
+                  <div className={`w-4 h-4 bg-white rounded-full transition-all duration-300 transform ${showVideo ? "translate-x-5" : "translate-x-0.5"} mt-0.5`}></div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-lg">📹</span>
+                <span className="text-white font-medium text-sm">Enable Video Chat</span>
+              </div>
+            </label>
+          </div>
+
+          {/* Info Panel */}
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-4 border border-white/20 shadow-2xl">
+            <h3 className="text-white font-bold text-base mb-3 flex items-center gap-2">
+              <span className="text-lg">💡</span>
+              How it works
+            </h3>
+
+            <div className="space-y-1.5 text-white/80 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-blue-400">•</span>
+                <span>Choose your matching preference</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-green-400">•</span>
+                <span>Click "Start" to find someone</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-purple-400">•</span>
+                <span>Chat via text or enable video</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-orange-400">•</span>
+                <span>Use "Next" to find a new person</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-red-400">•</span>
+                <span>Click "End" to stop completely</span>
+              </div>
+            </div>
+
+            <div className="mt-3 p-2.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg border border-purple-400/30">
+              <p className="text-white/90 text-xs text-center font-medium">
+                <span className="text-base mr-1">🎉</span>
+                Be respectful and have fun!
+              </p>
+            </div>
+
+            {/* Plan-specific messages */}
+            {userPlan?.planStatus.isActive && userPlan.planStatus.planName !== "Free Plan" && (
+              <div className="mt-3 p-2.5 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-lg border border-emerald-400/30">
+                <p className="text-white/90 text-xs text-center">
+                  <span className="text-base mr-1">💎</span>
+                  You have {userPlan.planStatus.planName}!
+                  {userPlan.user.planType === "gender" && " Filter by gender in your college and inter-college!"}
+                  {userPlan.user.planType === "intercollege" && " Match with any college!"}
+                </p>
+              </div>
+            )}
+
+            {(!userPlan?.user.hasActivePlan || userPlan.user.planType === "free") && (
+              <div className="mt-3 p-2.5 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-lg border border-yellow-400/30">
+                <p className="text-white/90 text-xs text-center">
+                  <span className="text-base mr-1">⭐</span>
+                  Want more options? Upgrade to unlock inter-college matching and gender filtering!
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <style jsx>{`
@@ -1238,16 +947,14 @@ export default function VideoPageClient() {
           animation: fade-in 0.3s ease-out forwards;
         }
 
-        /* Prevent scroll on typing - contain scroll within chat */
+        /* Contain scroll inside messages to avoid page jump on typing */
         .chat-scroll {
           overscroll-behavior: contain;
           scroll-behavior: smooth;
         }
 
-        /* Fix local video mirror - show original image */
-        video[style*="scaleX(-1)"] {
-          transform: scaleX(-1) !important;
-        }
+        /* Local video must never be mirrored */
+        .local-video { transform: none !important; }
 
         /* Link styling inside message text */
         .msg-text a {
