@@ -1,149 +1,216 @@
-// components/Footer.tsx
+"use client";
+
 import Image from "next/image";
+import Link from "next/link";
+import { FormEvent } from "react";
+import { Mail, Instagram, Twitter, Linkedin } from "lucide-react";
 
 export default function Footer() {
+  const year = new Date().getFullYear();
+
+  const onSubscribe = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    // TODO: wire to your newsletter endpoint
+    // const email = new FormData(e.currentTarget).get("email");
+    // await fetch("/api/subscribe", { method: "POST", body: JSON.stringify({ email }) });
+  };
+
   return (
-    <footer className="relative z-10 bg-[#EAF2FE] text-[#0F172A] mt-20">
-      {/* Main Footer Content */}
-      <div className="max-w-6xl mx-auto px-4 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-          
-          {/* Brand Column */}
-          <div className="lg:col-span-1">
-            <div className="flex items-center gap-3 mb-6">
-              <Image
-                src="/purr_assit_logo.webp"
-                alt="PurrAssist Logo"
-                width={48}
-                height={48}
-                className="w-12 h-12 object-contain"
+    <footer className="mt-24 border-t bg-[#EAF2FE] border-[#CBD5E1] text-[#0F172A]">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+          {/* Brand + status */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="relative h-9 w-9">
+                <Image
+                  src="/purr_assit_logo.webp"
+                  alt="PurrAssist"
+                  fill
+                  className="object-contain"
+                  sizes="36px"
+                  priority
+                />
+              </div>
+              <h3 className="text-lg font-extrabold tracking-tight">PurrAssist</h3>
+            </div>
+
+            <p className="text-sm leading-6 text-[#475569]">
+              Real students. Real connections. Built with care in India.
+            </p>
+
+            <div
+              className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs border-[#CBD5E1] bg-white"
+              aria-label="Service status"
+            >
+              <span
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: "#22C55E" }}
+                aria-hidden
               />
-              <span className="text-xl font-bold text-[#0F172A]">PurrAssist</span>
+              <span className="font-medium">All systems operational</span>
             </div>
-            <p className="text-[#475569] text-sm leading-relaxed mb-6">
-              Verified college video chat connecting real students for authentic conversations. No bots, no creeps—just genuine connections.
+
+            <p className="text-sm text-[#475569]">
+              Questions?{" "}
+              <a
+                className="font-semibold text-[#0F766E] hover:text-[#115E59] underline decoration-[#F9A8D4] underline-offset-4"
+                href="mailto:support@purrassist.app"
+              >
+                support@purrassist.app
+              </a>
             </p>
-            
-            {/* Contact Info */}
-            <div className="mb-6">
-              <p className="text-[#475569] text-sm mb-2">
-                <span className="font-medium">Email:</span> purrassist@gmail.com
-              </p>
-              <p className="text-[#475569] text-sm mb-1">
-                <span className="font-medium">Business Enquiry:</span>
-              </p>
-
-            </div>
-
-            <div className="flex gap-4">
-              {/* Facebook */}
-              <a href="#" className="w-10 h-10 bg-white hover:bg-[#0F766E] rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border border-[#CBD5E1] hover:text-white group">
-                <svg className="w-5 h-5 text-[#0F766E] group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                </svg>
-              </a>
-              {/* Instagram */}
-              <a href="https://www.instagram.com/purrassist?igsh=MXdwbGlrYm83dWNwNQ==" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white hover:bg-[#0F766E] rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border border-[#CBD5E1] hover:text-white group">
-                <svg className="w-5 h-5 text-[#0F766E] group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-                </svg>
-              </a>
-              {/* Twitter/X - Updated with your link */}
-              <a href="https://x.com/purrassist?s=21" target="_blank" rel="noopener noreferrer" className="w-10 h-10 bg-white hover:bg-[#0F766E] rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border border-[#CBD5E1] hover:text-white group">
-                <svg className="w-5 h-5 text-[#0F766E] group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                </svg>
-              </a>
-              {/* LinkedIn */}
-              <a href="#" className="w-10 h-10 bg-white hover:bg-[#0F766E] rounded-full flex items-center justify-center transition-all duration-300 shadow-sm border border-[#CBD5E1] hover:text-white group">
-                <svg className="w-5 h-5 text-[#0F766E] group-hover:text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                </svg>
-              </a>
-            </div>
           </div>
 
-          {/* Product Links */}
-          <div>
-            <h3 className="text-lg font-semibold mb-4 text-[#0F172A]">Product</h3>
-            <ul className="space-y-3">
-              <li><a href="/chat" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Video Chat</a></li>
-              <li><a href="/features" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Features</a></li>
-              <li><a href="/safety" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Safety & Verification</a></li>
-              <li><a href="/campus-connect" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Campus Connect</a></li>
-              <li><a href="/global-mode" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Global Mode</a></li>
-              <li><a href="/coming-soon" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm flex items-center gap-2 hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">
-                Local Hangouts <span className="text-xs bg-[#F9A8D4] text-[#9D174D] px-2 py-0.5 rounded-full font-medium">Soon</span>
-              </a></li>
+          {/* Company */}
+          <nav className="space-y-3">
+            <h4 className="text-sm font-semibold tracking-wide">Company</h4>
+            <ul className="space-y-2 text-sm">
+              <li>
+                <Link
+                  href="/contact"
+                  className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+                >
+                  Contact
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/report"
+                  className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+                >
+                  Report
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/legal"
+                  className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+                >
+                  Legal Notices
+                </Link>
+              </li>
             </ul>
-          </div>
+          </nav>
 
-          {/* Support Links */}
-          <div>
-            <h3 className="text-lg font-semibold mb-4 text-[#0F172A]">Support</h3>
-            <ul className="space-y-3">
-              <li><a href="/help" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Help Center</a></li>
-              <li><a href="/contact" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Contact Us</a></li>
-              <li><a href="/report" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Report Issue</a></li>
-              <li><a href="/feedback" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Give Feedback</a></li>
-              <li><a href="/status" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">System Status</a></li>
-              <li><a href="/community" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Community Guidelines</a></li>
+          {/* Legal */}
+          <nav className="space-y-3">
+            <h4 className="text-sm font-semibold tracking-wide">Legal</h4>
+            <ul className="space-y-2 text-sm">
+              <li>
+                <Link
+                  href="/privacy"
+                  className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+                >
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/terms"
+                  className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+                >
+                  Terms of Service
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/cookies"
+                  className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+                >
+                  Cookie Policy
+                </Link>
+              </li>
             </ul>
-          </div>
+          </nav>
 
-          {/* Company & Legal */}
-          <div>
-            <h3 className="text-lg font-semibold mb-4 text-[#0F172A]">Company</h3>
-            <ul className="space-y-3">
-              <li><a href="/about" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">About Us</a></li>
-              <li><a href="/careers" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Careers</a></li>
-              <li><a href="/press" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Press Kit</a></li>
-              <li><a href="/blog" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Blog</a></li>
-              <li><a href="/privacy" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Privacy Policy</a></li>
-              <li><a href="/terms" className="text-[#0F766E] hover:text-[#115E59] transition-colors text-sm hover:underline decoration-[#F9A8D4] decoration-2 underline-offset-2">Terms of Service</a></li>
-            </ul>
-          </div>
-        </div>
-
-        {/* Newsletter Signup */}
-        <div className="mt-12 pt-8 border-t border-[#F9A8D4]">
-          <div className="text-center max-w-2xl mx-auto">
-            <h3 className="text-xl font-semibold mb-3 text-[#0F172A]">Stay Updated</h3>
-            <p className="text-[#475569] text-sm mb-6">
-              Get early access to new features, campus events, and exclusive student perks.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+          {/* Newsletter + Social */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-semibold tracking-wide">Stay in the loop</h4>
+            <form onSubmit={onSubscribe} className="flex gap-2">
               <input
                 type="email"
-                placeholder="Enter your college email"
-                className="flex-1 px-4 py-3 rounded-lg bg-white border border-[#CBD5E1] text-[#0F172A] placeholder-[#64748B] focus:outline-none focus:border-[#0F766E] focus:ring-2 focus:ring-[#0F766E] text-sm"
+                name="email"
+                required
+                placeholder="you@example.com"
+                className="w-full rounded-xl border px-3 py-2.5 text-sm bg-white placeholder-[#94A3B8] border-[#CBD5E1] focus:outline-none focus:ring-2 focus:ring-[#0F766E]/40 focus:border-[#0F766E]"
               />
-              <button className="px-6 py-3 bg-gradient-to-r from-[#FBBF24] to-[#F59E0B] hover:from-[#F59E0B] hover:to-[#D97706] rounded-lg font-medium transition-all text-sm text-[#0F172A] shadow-sm">
-                Join Waitlist
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center whitespace-nowrap rounded-xl px-4 text-sm font-semibold text-[#0F172A] border border-[#F9A8D4] bg-gradient-to-r from-[#FBBF24] to-[#F59E0B] hover:brightness-105 transition-shadow shadow"
+              >
+                Subscribe
               </button>
+            </form>
+
+            <div className="flex items-center gap-3 pt-1">
+              <a
+                href="mailto:support@purrassist.app"
+                aria-label="Email"
+                className="grid h-9 w-9 place-items-center rounded-full bg-white border border-[#CBD5E1] text-[#0F172A] hover:shadow-sm"
+              >
+                <Mail size={18} />
+              </a>
+              <a
+                href="https://twitter.com"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Twitter"
+                className="grid h-9 w-9 place-items-center rounded-full bg-white border border-[#CBD5E1] text-[#0F172A] hover:shadow-sm"
+              >
+                <Twitter size={18} />
+              </a>
+              <a
+                href="https://instagram.com"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Instagram"
+                className="grid h-9 w-9 place-items-center rounded-full bg-white border border-[#CBD5E1] text-[#0F172A] hover:shadow-sm"
+              >
+                <Instagram size={18} />
+              </a>
+              <a
+                href="https://linkedin.com"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="LinkedIn"
+                className="grid h-9 w-9 place-items-center rounded-full bg-white border border-[#CBD5E1] text-[#0F172A] hover:shadow-sm"
+              >
+                <Linkedin size={18} />
+              </a>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Bottom Bar */}
-      <div className="border-t border-[#F9A8D4] bg-white/50">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="text-[#475569] text-sm text-center sm:text-left">
-              © 2025 PurrAssist. All rights reserved. Made with 💜 for college students in India.
-            </div>
-            <div className="flex items-center gap-6 text-sm">
-              <a href="/privacy" className="text-[#0F766E] hover:text-[#115E59] transition-colors">Privacy</a>
-              <a href="/terms" className="text-[#0F766E] hover:text-[#115E59] transition-colors">Terms</a>
-              <a href="/cookies" className="text-[#0F766E] hover:text-[#115E59] transition-colors">Cookies</a>
-              <div className="flex items-center gap-2 text-[#475569]">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                <span className="text-xs bg-[#F9A8D4] text-[#9D174D] px-2 py-1 rounded-full font-medium">Verified</span>
-                All systems operational
-              </div>
+        {/* Divider */}
+        <div className="mt-10 border-t border-[#CBD5E1] pt-6">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-sm">
+            <p className="text-[#475569]">© {year} PurrAssist. All rights reserved.</p>
+
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <Link
+                href="/privacy"
+                className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+              >
+                Privacy Policy
+              </Link>
+              <Link
+                href="/terms"
+                className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+              >
+                Terms of Service
+              </Link>
+              <Link
+                href="/cookies"
+                className="text-[#0F766E] hover:text-[#115E59] hover:underline decoration-[#F9A8D4] underline-offset-4"
+              >
+                Cookie Policy
+              </Link>
             </div>
           </div>
+
+          {/* subtle pink accent line */}
+          <div className="mt-4 h-[3px] w-24 rounded-full bg-[#F9A8D4]" />
         </div>
       </div>
     </footer>
