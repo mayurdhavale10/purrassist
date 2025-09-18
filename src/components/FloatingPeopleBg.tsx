@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-
+// import { useEffect } from "react";
 type Person = {
   src: string;              // public path to image
   left: string;             // left position (e.g. "6%", "22%")
