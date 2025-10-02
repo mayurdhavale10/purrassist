@@ -3,6 +3,12 @@ import type { NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import clientPromise from "@/lib/clientPromise";
 
+/** Resolve Google env keys (supports your AUTH_* names, with GOOGLE_* fallback) */
+const GOOGLE_ID =
+  process.env.AUTH_GOOGLE_ID ?? process.env.GOOGLE_CLIENT_ID!;
+const GOOGLE_SECRET =
+  process.env.AUTH_GOOGLE_SECRET ?? process.env.GOOGLE_CLIENT_SECRET!;
+
 /** public/webmail domains to block (Outlook/Live are *not* blocked anymore) */
 const PUBLIC_DOMAINS = new Set([
   "gmail.com",
@@ -62,8 +68,8 @@ function isEligibleSignInDomain(domain: string): boolean {
 const authConfig: NextAuthConfig = {
   providers: [
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: GOOGLE_ID,
+      clientSecret: GOOGLE_SECRET,
       // we support many domains, so we don't set Google "hd"
       async profile(profile) {
         return {
