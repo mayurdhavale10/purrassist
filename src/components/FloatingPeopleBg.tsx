@@ -10,7 +10,7 @@ type Person = {
   blur?: boolean;           // subtle depth blur for parallax
 };
 
-/** Parse various filename formats and handle special cases */
+/** Parse various filename formats and handle special casess */
 function metaFromFilename(src: string) {
   // get file name only
   const file = src.split("/").pop() ?? "";
