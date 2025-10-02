@@ -1,0 +1,4 @@
+- users: unique(emailLower), unique(handle), index(collegeId), index(planTier)
+- threads: compound index(participantIds, lastMessageAt desc)
+- messages: index(threadId, createdAt), index(senderId, createdAt)
+- follow: unique(followerId, followeeId), index(status)
