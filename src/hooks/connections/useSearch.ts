@@ -1,49 +1,70 @@
 // src/hooks/connections/useSearch.ts
-"use client";
-
-import * as React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type SearchUser = {
   userId: string;
-  displayName?: string;
+  emailLower?: string;
   handle?: string;
-  avatarUrl?: string | null;
-  collegeId?: string | null;
-  planTier?: "FREE" | "BASIC" | "PREMIUM" | null;
+  displayName?: string;
+  avatarUrl?: string;
+  collegeName?: string;
+  planTier?: "FREE" | "BASIC" | "PREMIUM";
 };
 
-export function useSearch() {
-  const [q, setQ] = React.useState("");
-  const [results, setResults] = React.useState<SearchUser[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+export function useConnectionsSearch() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchUser[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Debounce
-  React.useEffect(() => {
-    if (!q.trim()) {
+  // simple debounce
+  const debounced = useDebounce(query, 300);
+
+  useEffect(() => {
+    if (!debounced) {
       setResults([]);
+      setError(null);
       return;
     }
-    const id = setTimeout(async () => {
-      setLoading(true);
-      setError(null);
+
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    (async () => {
       try {
-        const res = await fetch("/api/users/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: q }),
+        setLoading(true);
+        setError(null);
+        const r = await fetch(`/api/users/search?q=${encodeURIComponent(debounced)}`, {
+          method: "GET",
+          credentials: "include",
+          signal: ctrl.signal,
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { items: SearchUser[] };
-        setResults(data.items ?? []);
+        if (!r.ok) {
+          const t = await r.text().catch(() => "");
+          throw new Error(`Search failed: ${r.status} ${t}`);
+        }
+        const data = await r.json();
+        setResults(data.results ?? []);
       } catch (e: any) {
-        setError(e?.message ?? "Search failed");
+        if (e.name !== "AbortError") setError(e.message || "Search failed");
       } finally {
         setLoading(false);
       }
-    }, 300);
-    return () => clearTimeout(id);
-  }, [q]);
+    })();
 
-  return { q, setQ, results, loading, error, clear: () => setResults([]) };
+    return () => ctrl.abort();
+  }, [debounced]);
+
+  return { query, setQuery, results, loading, error };
+}
+
+function useDebounce<T>(value: T, delay = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return v;
 }
