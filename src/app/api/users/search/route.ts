@@ -1,10 +1,14 @@
 // src/app/api/users/search/route.ts
 import { NextResponse } from "next/server";
 import clientPromise from "@/lib/clientPromise";
-// If your auth export is at project root `auth.ts`, this relative import works from /src/app/api/**/*
-import { auth } from "../../../../../auth"; // adjust if your path differs
+// From /src/app/api/users/search/route.ts to project root is 4 levels:
+import { auth } from "../../../../../auth";
 
-export const dynamic = "force-dynamic"; // no caching
+export const dynamic = "force-dynamic"; // no caching in dev
+
+function escapeRegex(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export async function GET(req: Request) {
   try {
@@ -14,60 +18,43 @@ export async function GET(req: Request) {
     }
 
     const { searchParams } = new URL(req.url);
-    const q = (searchParams.get("q") || "").trim().toLowerCase();
-    if (!q) {
+    const qRaw = (searchParams.get("q") || "").trim();
+    if (!qRaw) {
       return NextResponse.json({ results: [] }, { status: 200 });
     }
 
+    const q = qRaw.replace(/^@/, ""); // allow @handle style later
+
     const client = await clientPromise;
-    const db = client.db();
+    const db = client.db(); // DB from your MONGODB_URI
     const users = db.collection("users");
 
-    // Parse query: email, @handle, or name prefix
-    const isEmail = q.includes("@");
-    const isHandle = q.startsWith("@");
-    const handle = isHandle ? q.slice(1) : null;
-
-    const or: any[] = [];
-    if (isEmail) {
-      or.push({ emailLower: q });
-    } else if (isHandle && handle) {
-      or.push({ handleLower: handle });
-    } else {
-      // name/displayName prefix search (simple regex; tune later)
-      or.push({ displayNameLower: { $regex: `^${escapeRegex(q)}` } });
-      // also allow handle prefix without @
-      or.push({ handleLower: { $regex: `^${escapeRegex(q)}` } });
-    }
-
     // Exclude self
-    const meEmail = session.user.email.toLowerCase();
+    const meEmail = (session.user.email as string) || "";
 
-    const cursor = users
-      .find(
-        {
-          $and: [
-            { emailLower: { $ne: meEmail } },
-            { $or: or },
-          ],
-        },
-        {
-          projection: {
-            _id: 0,
-            userId: 1,
-            emailLower: 1,
-            handle: 1,
-            handleLower: 1,
-            displayName: 1,
-            avatarUrl: 1,
-            collegeName: 1,
-            planTier: 1,
-          },
-        }
-      )
-      .limit(10);
+    // Match on current fields: name (contains), email (contains)
+    const filter = {
+      email: { $ne: meEmail },
+      $or: [
+        { name: { $regex: escapeRegex(q), $options: "i" } },
+        { email: { $regex: escapeRegex(q), $options: "i" } },
+      ],
+    };
 
-    const results = await cursor.toArray();
+    // Project only what exists today. Keep _id so we can build userId.
+    const docs = await users
+      .find(filter, { projection: { email: 1, name: 1, image: 1 } })
+      .limit(10)
+      .toArray();
+
+    const results = docs.map((u: any) => ({
+      userId: u._id?.toString(),   // use _id for now
+      email: u.email ?? null,
+      name: u.name ?? null,
+      image: u.image ?? null,
+      handle: null,                // you don’t store handles yet
+    }));
+
     return NextResponse.json({ results }, { status: 200 });
   } catch (err) {
     console.error("users/search error:", err);
@@ -75,7 +62,22 @@ export async function GET(req: Request) {
   }
 }
 
-// tiny helper to make regex safe
-function escapeRegex(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
