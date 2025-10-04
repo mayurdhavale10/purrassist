@@ -2,11 +2,15 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import gsap from "gsap";
+
+// Lazy-load the modal to avoid SSR/suspense issues
+const AuthModal = dynamic(() => import("@/components/auth/AuthModal"), { ssr: false });
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -14,18 +18,17 @@ export default function Navbar() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [showAuth, setShowAuth] = useState(false); // <-- NEW
 
-  // Refs for entrance animation
   const logoRef = useRef<HTMLDivElement>(null);
   const linkWrapRef = useRef<HTMLDivElement>(null);
   const authRef = useRef<HTMLDivElement>(null);
 
-  // Toggle
   const toggleMobileMenu = () => setIsMobileMenuOpen((s) => !s);
 
-  // Auth-gated nav action
   const gotoProtected = (path: string) => {
     if (!session) {
+      // keep Google for “fast login”; modal is offered by the explicit Sign up button
       signIn("google", { callbackUrl: path });
     } else {
       window.location.href = path;
@@ -33,7 +36,6 @@ export default function Navbar() {
     setIsMobileMenuOpen(false);
   };
 
-  // On mount: GSAP intro (respect reduced motion)
   useLayoutEffect(() => {
     const reduced =
       typeof window !== "undefined" &&
@@ -61,7 +63,6 @@ export default function Navbar() {
     return () => ctx.revert();
   }, []);
 
-  // Scroll state (morph glass → solid)
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
@@ -69,7 +70,6 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Styles
   const barBase =
     "fixed top-0 inset-x-0 z-50 transition-all duration-300 will-change-transform";
   const barSkin = scrolled
@@ -84,7 +84,6 @@ export default function Navbar() {
 
   return (
     <>
-      {/* NAVBAR */}
       <nav className={`${barBase} ${barSkin} ${barHeight}`} role="navigation" aria-label="Primary">
         <div className="mx-auto max-w-7xl h-full px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           {/* Brand */}
@@ -104,19 +103,11 @@ export default function Navbar() {
 
           {/* Desktop links */}
           <div ref={linkWrapRef} className="hidden lg:flex items-center gap-2">
-            <Link href="/" className={`${linkBase} ${isActive("/")}`}>
-              Home
-            </Link>
-            <button
-              onClick={() => gotoProtected("/connections")}
-              className={`${linkBase} ${isActive("/connections")}`}
-            >
+            <Link href="/" className={`${linkBase} ${isActive("/")}`}>Home</Link>
+            <button onClick={() => gotoProtected("/connections")} className={`${linkBase} ${isActive("/connections")}`}>
               Connections
             </button>
-            <button
-              onClick={() => gotoProtected("/profile")}
-              className={`${linkBase} ${isActive("/profile")}`}
-            >
+            <button onClick={() => gotoProtected("/profile")} className={`${linkBase} ${isActive("/profile")}`}>
               Profile
             </button>
           </div>
@@ -126,14 +117,22 @@ export default function Navbar() {
             {/* Desktop auth */}
             <div className="hidden md:flex items-center gap-3">
               {status === "loading" ? (
-                <div className="h-9 w-[96px] rounded-lg bg-white/15 animate-pulse" aria-hidden />
+                <div className="h-9 w-[160px] rounded-lg bg-white/15 animate-pulse" aria-hidden />
               ) : !session ? (
-                <button
-                  onClick={() => signIn("google")}
-                  className="inline-flex items-center rounded-xl px-3 py-2 text-sm font-semibold bg-white text-black hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-                >
-                  Login
-                </button>
+                <>
+                  <button
+                    onClick={() => signIn("google")}
+                    className="inline-flex items-center rounded-xl px-3 py-2 text-sm font-semibold bg-white text-black hover:bg-zinc-100"
+                  >
+                    Login with Google
+                  </button>
+                  <button
+                    onClick={() => setShowAuth(true)}       
+                    className="inline-flex items-center rounded-xl px-3 py-2 text-sm font-semibold bg-white/10 text-white hover:bg-white/15"
+                  >
+                    Sign up
+                  </button>
+                </>
               ) : (
                 <>
                   <Image
@@ -148,7 +147,7 @@ export default function Navbar() {
                   </span>
                   <button
                     onClick={() => signOut()}
-                    className="inline-flex items-center rounded-xl px-3 py-2 text-sm font-semibold bg-white/10 text-white hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                    className="inline-flex items-center rounded-xl px-3 py-2 text-sm font-semibold bg-white/10 text-white hover:bg-white/15"
                   >
                     Logout
                   </button>
@@ -158,7 +157,7 @@ export default function Navbar() {
 
             {/* Mobile toggle */}
             <button
-              onClick={toggleMobileMenu}
+              onClick={() => setIsMobileMenuOpen((s) => !s)}
               aria-expanded={isMobileMenuOpen}
               aria-controls="mobile-nav"
               aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
@@ -174,7 +173,7 @@ export default function Navbar() {
       {isMobileMenuOpen && (
         <div
           className="fixed inset-0 z-[49] bg-black/50 backdrop-blur-sm lg:hidden"
-          onClick={toggleMobileMenu}
+          onClick={() => setIsMobileMenuOpen(false)}
         >
           <div
             id="mobile-nav"
@@ -182,31 +181,16 @@ export default function Navbar() {
             aria-modal="true"
             className="fixed top-[--nav-h] left-0 right-0 mt-[64px] sm:mt-[72px] max-h-[70vh] overflow-auto
                        mx-4 rounded-2xl bg-white/10 ring-1 ring-white/20 backdrop-blur-md p-4 space-y-3 text-white"
-            style={
-              {
-                // keep this in sync with barHeight so the sheet sits below the bar
-                ["--nav-h" as any]: "0px",
-              } as React.CSSProperties
-            }
+            style={{ ["--nav-h" as any]: "0px" } as React.CSSProperties}
             onClick={(e) => e.stopPropagation()}
           >
-            <Link
-              href="/"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className={`block w-full ${linkBase} ${isActive("/")} !justify-center`}
-            >
+            <Link href="/" onClick={() => setIsMobileMenuOpen(false)} className={`block w-full ${linkBase} ${isActive("/")} !justify-center`}>
               Home
             </Link>
-            <button
-              onClick={() => gotoProtected("/connections")}
-              className={`block w-full ${linkBase} ${isActive("/connections")} !justify-center`}
-            >
+            <button onClick={() => gotoProtected("/connections")} className={`block w-full ${linkBase} ${isActive("/connections")} !justify-center`}>
               Connections
             </button>
-            <button
-              onClick={() => gotoProtected("/profile")}
-              className={`block w-full ${linkBase} ${isActive("/profile")} !justify-center`}
-            >
+            <button onClick={() => gotoProtected("/profile")} className={`block w-full ${linkBase} ${isActive("/profile")} !justify-center`}>
               Profile
             </button>
 
@@ -214,15 +198,26 @@ export default function Navbar() {
               {status === "loading" ? (
                 <div className="h-10 w-full rounded-xl bg-white/15 animate-pulse" />
               ) : !session ? (
-                <button
-                  onClick={() => {
-                    signIn("google");
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className="w-full inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold bg-white text-black hover:bg-zinc-100"
-                >
-                  Login with Google
-                </button>
+                <div className="grid grid-cols-1 gap-3">
+                  <button
+                    onClick={() => {
+                      signIn("google");
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold bg-white text-black hover:bg-zinc-100"
+                  >
+                    Login with Google
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAuth(true);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold bg-white/10 hover:bg-white/15"
+                  >
+                    Sign up
+                  </button>
+                </div>
               ) : (
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -249,6 +244,16 @@ export default function Navbar() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* YOUR CUSTOM AUTH MODAL */}
+      {showAuth && (
+        <AuthModal
+          open={showAuth}
+          onClose={() => setShowAuth(false)}
+          // optionally pass a mode if your component supports it:
+          // mode="signup"
+        />
       )}
     </>
   );
