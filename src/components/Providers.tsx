@@ -1,9 +1,12 @@
-// app/providers.tsx
+// src/components/Providers.tsx
 "use client";
 
 import { SessionProvider } from "next-auth/react";
-import type { ReactNode } from "react";
+import { ReactNode } from "react";
 
-export default function Providers({ children }: { children: ReactNode }) {
+type Props = { children: ReactNode };
+
+export default function Providers({ children }: Props) {
+  // NextAuth v5: no props needed; it reads cookies automatically
   return <SessionProvider>{children}</SessionProvider>;
 }
