@@ -1,210 +1,239 @@
-import { NextResponse } from 'next/server';
-import mongoose from 'mongoose';
-import User from '@/models/User'; // Adjust the import path to your User model
-import { mongooseConnect } from '@/lib/dbConnect';
-import { auth } from '../../../../../auth';
+// src/app/api/user/me/route.ts
+import { NextResponse } from "next/server";
+// If auth.ts is at project root, use relative path:
+import { auth } from "../../../../../auth";
+// If you later move it to src/auth.ts, switch to: import { auth } from "@/auth";
+import { getUsersCollection } from "@/models/user.model";
 
-// Define interfaces for better type safety
-interface UserData {
+/** ===== Domain Types (explicit, verbose for clarity) ===== */
+export type PlanTier = "FREE" | "BASIC" | "PREMIUM";
+export type PlanLabel = "free" | "gender" | "intercollege";
+
+export type Gender = "male" | "female" | "other" | null;
+
+export interface DbUser {
   email: string;
-  name?: string;
-  image?: string;
-  gender?: string;
-  planType: 'free' | 'gender' | 'intercollege';
-  planExpiry?: Date | string;
+  name?: string | null;
+  image?: string | null;
+  gender?: Gender;
+  planTier?: PlanTier;
+  planExpiry?: Date | string | null;
+  // other fields may exist but are not needed here
 }
 
-interface MatchingOption {
+export interface MatchingOption {
   type: string;
   label: string;
   description: string;
   icon: string;
-  requiresGender?: 'male' | 'female';
+  requiresGender?: "male" | "female";
 }
 
-interface PlanStatus {
+export interface PlanStatus {
   isActive: boolean;
   planName: string;
-  expiresAt?: Date | string;
+  expiresAt?: Date | string | null;
   daysRemaining: number | null;
 }
 
-interface ApiResponse {
+export interface ApiResponse {
   user: {
     email: string;
-    name?: string;
-    image?: string;
-    gender?: string;
+    name?: string | null;
+    image?: string | null;
+    gender?: Gender;
     college: string;
-    planType: string;
+    planType: PlanLabel;
     hasActivePlan: boolean;
-    planExpiry?: Date | string;
+    planExpiry?: Date | string | null;
     daysRemaining: number | null;
   };
   matchingOptions: MatchingOption[];
   planStatus: PlanStatus;
 }
 
-// For App Router (Next.js 13+)
-export async function GET(request: Request): Promise<NextResponse> {
-  try {
-    // Get session from NextAuth
-    const session = await auth();
-    
-    if (!session || !session.user?.email) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+/** ===== Helpers (kept explicit to mirror your original style) ===== */
 
-    const email: string = session.user.email as string;
+/** Map canonical PlanTier -> UI label used elsewhere in your app */
+function planLabelFromTier(tier?: PlanTier): PlanLabel {
+  if (tier === "BASIC") return "intercollege";
+  if (tier === "PREMIUM") return "gender";
+  return "free";
+}
 
-    // Connect to MongoDB
-    await mongooseConnect();
+/** Extract college token from an email domain */
+function extractCollege(email: string): string {
+  const domain = email.split("@")[1] || "";
+  if (!domain) return "unknown";
 
-    // Find user directly from MongoDB
-    const userData: UserData | null = await User.findOne({ email });
+  const common = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com"];
+  if (common.includes(domain.toLowerCase())) return "general";
 
-    if (!userData) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-    
-    // Extract college from email with proper typing
-    const extractCollege = (email: string): string => {
-      const domain = email.split('@')[1];
-      if (!domain) return 'unknown';
-      
-      const commonProviders: string[] = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'];
-      if (commonProviders.includes(domain.toLowerCase())) {
-        return 'general';
-      }
-      
-      return domain.replace(/\.(edu|ac\.in|edu\.in|org|com)$/i, '').toLowerCase();
-    };
+  // remove academic/commercial suffixes and take first label
+  const stripped = domain.replace(/\.(edu|ac\.in|edu\.in|org|com)$/i, "");
+  const first = stripped.split(".")[0] || stripped;
+  return first.toLowerCase();
+}
 
-    // Check if plan is active with proper typing
-    const isPlanActive = (planType: string, planExpiry?: Date | string): boolean => {
-      if (planType === 'free') return true;
-      if (!planExpiry) return false;
-      return new Date() < new Date(planExpiry);
-    };
+/** A paid plan is active if now < expiry; FREE is always active */
+function isPlanActive(planLabel: PlanLabel, planExpiry?: Date | string | null): boolean {
+  if (planLabel === "free") return true;
+  if (!planExpiry) return false;
+  return new Date() < new Date(planExpiry);
+}
 
-    const college: string = extractCollege(userData.email);
-    const hasActivePlan: boolean = isPlanActive(userData.planType, userData.planExpiry);
-    
-    // Calculate days remaining
-    let daysRemaining: number | null = null;
-    if (userData.planExpiry && new Date(userData.planExpiry) > new Date()) {
-      daysRemaining = Math.ceil((new Date(userData.planExpiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-    }
+/** Days remaining until expiry, or null if expired/none */
+function calcDaysRemaining(exp?: Date | string | null): number | null {
+  if (!exp) return null;
+  const expiry = new Date(exp);
+  const now = new Date();
+  if (expiry <= now) return null;
+  const ms = expiry.getTime() - now.getTime();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
 
-    // Determine matching options based on plan
-    let matchingOptions: MatchingOption[] = [];
-    
-    if (hasActivePlan) {
-      switch (userData.planType) {
-        case 'gender':
-          matchingOptions = [
-            {
-              type: 'same_college_any',
-              label: 'Same College - Any Gender',
-              description: `Match with anyone from ${college}`,
-              icon: '🏫'
-            },
-            {
-              type: 'same_college_male',
-              label: 'Same College - Male Only',
-              description: `Match with males from ${college}`,
-              icon: '👨‍🎓',
-              requiresGender: 'male'
-            },
-            {
-              type: 'same_college_female',
-              label: 'Same College - Female Only', 
-              description: `Match with females from ${college}`,
-              icon: '👩‍🎓',
-              requiresGender: 'female'
-            }
-          ];
-          break;
-          
-        case 'intercollege':
-          matchingOptions = [
-            {
-              type: 'any_college_any',
-              label: 'Any College - Any Gender',
-              description: 'Match with anyone from any college',
-              icon: '🌍'
-            },
-            {
-              type: 'any_college_male',
-              label: 'Any College - Male Only',
-              description: 'Match with males from any college',
-              icon: '👨‍🎓',
-              requiresGender: 'male'
-            },
-            {
-              type: 'any_college_female',
-              label: 'Any College - Female Only',
-              description: 'Match with females from any college',
-              icon: '👩‍🎓',
-              requiresGender: 'female'
-            },
-            {
-              type: 'same_college_any',
-              label: 'Same College - Any Gender',
-              description: `Match with anyone from ${college}`,
-              icon: '🏫'
-            }
-          ];
-          break;
-          
-        default: // free
-          matchingOptions = [
-            {
-              type: 'same_college_any',
-              label: 'Same College Only',
-              description: `Match with anyone from ${college} (Free Plan)`,
-              icon: '🏫'
-            }
-          ];
-      }
-    } else {
-      matchingOptions = [
-        {
-          type: 'same_college_any',
-          label: 'Same College Only',
-          description: `Match with anyone from ${college} (Free Plan)`,
-          icon: '🏫'
-        }
-      ];
-    }
-
-    const response: ApiResponse = {
-      user: {
-        email: userData.email,
-        name: userData.name,
-        image: userData.image,
-        gender: userData.gender,
-        college,
-        planType: userData.planType,
-        hasActivePlan,
-        planExpiry: userData.planExpiry,
-        daysRemaining
+/** Build matching options based on plan and college token */
+function buildMatchingOptions(planLabel: PlanLabel, active: boolean, college: string): MatchingOption[] {
+  if (!active) {
+    return [
+      {
+        type: "same_college_any",
+        label: "Same College Only",
+        description: `Match with anyone from ${college} (Free Plan)`,
+        icon: "🏫",
       },
-      matchingOptions,
-      planStatus: {
-        isActive: hasActivePlan,
-        planName: userData.planType === 'gender' ? 'Gender Plan' : 
-                 userData.planType === 'intercollege' ? 'Inter-College Plan' : 
-                 'Free Plan',
-        expiresAt: userData.planExpiry,
-        daysRemaining
-      }
-    };
-
-    return NextResponse.json(response);
-
-  } catch (error) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    ];
   }
+
+  switch (planLabel) {
+    case "gender": // PREMIUM
+      return [
+        {
+          type: "same_college_any",
+          label: "Same College - Any Gender",
+          description: `Match with anyone from ${college}`,
+          icon: "🏫",
+        },
+        {
+          type: "same_college_male",
+          label: "Same College - Male Only",
+          description: `Match with males from ${college}`,
+          icon: "👨‍🎓",
+          requiresGender: "male",
+        },
+        {
+          type: "same_college_female",
+          label: "Same College - Female Only",
+          description: `Match with females from ${college}`,
+          icon: "👩‍🎓",
+          requiresGender: "female",
+        },
+      ];
+
+    case "intercollege": // BASIC
+      return [
+        {
+          type: "any_college_any",
+          label: "Any College - Any Gender",
+          description: "Match with anyone from any college",
+          icon: "🌍",
+        },
+        {
+          type: "any_college_male",
+          label: "Any College - Male Only",
+          description: "Match with males from any college",
+          icon: "👨‍🎓",
+          requiresGender: "male",
+        },
+        {
+          type: "any_college_female",
+          label: "Any College - Female Only",
+          description: "Match with females from any college",
+          icon: "👩‍🎓",
+          requiresGender: "female",
+        },
+        {
+          type: "same_college_any",
+          label: "Same College - Any Gender",
+          description: `Match with anyone from ${college}`,
+          icon: "🏫",
+        },
+      ];
+
+    default: // "free"
+      return [
+        {
+          type: "same_college_any",
+          label: "Same College Only",
+          description: `Match with anyone from ${college} (Free Plan)`,
+          icon: "🏫",
+        },
+      ];
+  }
+}
+
+/** ===== Route ===== */
+export async function GET(_req: Request): Promise<NextResponse> {
+  // 1) Auth
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  // 2) Read user via Mongo driver (projection hides secrets)
+  const users = await getUsersCollection();
+  const user = (await users.findOne(
+    { emailLower: email.trim().toLowerCase() },
+    {
+      projection: {
+        // never return secrets
+        passwordHash: 0,
+        resetTokenHash: 0,
+        resetTokenExp: 0,
+      },
+    }
+  )) as DbUser | null;
+
+  if (!user) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  // 3) Derived fields
+  const college = extractCollege(user.email);
+  const planLabel = planLabelFromTier(user.planTier);
+  const active = isPlanActive(planLabel, user.planExpiry);
+  const daysRemaining = calcDaysRemaining(user.planExpiry);
+
+  // 4) Matching options
+  const matchingOptions = buildMatchingOptions(planLabel, active, college);
+
+  // 5) Response payload (typed)
+  const response: ApiResponse = {
+    user: {
+      email: user.email,
+      name: user.name ?? null,
+      image: user.image ?? null,
+      gender: user.gender ?? null,
+      college,
+      planType: planLabel,
+      hasActivePlan: active,
+      planExpiry: user.planExpiry ?? null,
+      daysRemaining,
+    },
+    matchingOptions,
+    planStatus: {
+      isActive: active,
+      planName:
+        planLabel === "gender"
+          ? "Gender Plan"
+          : planLabel === "intercollege"
+          ? "Inter-College Plan"
+          : "Free Plan",
+      expiresAt: user.planExpiry ?? null,
+      daysRemaining,
+    },
+  };
+
+  return NextResponse.json(response);
 }

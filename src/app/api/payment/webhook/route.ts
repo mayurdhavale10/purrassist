@@ -1,19 +1,34 @@
-// /app/api/payment/webhook/route.ts
+// src/app/api/payment/webhook/route.ts
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { mongooseConnect } from "@/lib/dbConnect";
 import ProductOrder from "@/models/ProductOrder";
-import User from "@/models/User";
+import { getUsersCollection } from "@/models/user.model";
+import type { PlanTier } from "@/models/user.model";
 
-// Cashfree sends headers: x-webhook-timestamp & x-webhook-signature (HMAC-SHA256 base64 over `${timestamp}${rawBody}`)
-// Keep this handler in App Router (route.ts) so we can read the *raw* body via req.text().
+// Accept number | null | undefined to match order.amount shape
+function mapAmountToPlanTier(amount: number | null | undefined): PlanTier {
+  if (amount === 69) return "BASIC";     // previously "intercollege"
+  if (amount === 169) return "PREMIUM";  // previously "gender"
+  return "FREE";
+}
 
+/**
+ * Cashfree sends headers: x-webhook-timestamp & x-webhook-signature (HMAC-SHA256 base64 over `${timestamp}${rawBody}`)
+ * Keep this handler in App Router (route.ts) so we can read the *raw* body via req.text().
+ */
 function verifySignature(rawBody: string, timestamp: string, signature: string) {
   const secret = process.env.CASHFREE_SECRET_KEY;
   if (!secret) return false;
   const signedPayload = `${timestamp}${rawBody}`;
   const computed = crypto.createHmac("sha256", secret).update(signedPayload).digest("base64");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(computed));
+
+  // timingSafeEqual throws if lengths differ — guard first
+  const a = Buffer.from(signature || "", "utf8");
+  const b = Buffer.from(computed, "utf8");
+  if (a.length !== b.length) return false;
+
+  return crypto.timingSafeEqual(a, b);
 }
 
 export async function POST(req: Request) {
@@ -43,14 +58,19 @@ export async function POST(req: Request) {
     const paymentData = data?.payment || data;
 
     const orderId: string | undefined = orderData?.order_id || orderData?.orderId;
-    const cfOrderId: string | undefined = orderData?.cf_order_id ? String(orderData.cf_order_id) : undefined;
+    const cfOrderId: string | undefined =
+      orderData?.cf_order_id ? String(orderData.cf_order_id) : undefined;
 
-    const txId: string | undefined = paymentData?.cf_payment_id || paymentData?.payment_id || paymentData?.id;
-    const paymentStatus: string = paymentData?.payment_status || orderData?.order_status || payload?.type || "";
+    const txId: string | undefined =
+      paymentData?.cf_payment_id || paymentData?.payment_id || paymentData?.id;
+
+    const paymentStatus: string =
+      paymentData?.payment_status || orderData?.order_status || payload?.type || "";
 
     const paymentAmount: number | undefined =
       Number(paymentData?.payment_amount || orderData?.order_amount || 0) || undefined;
-    const paymentTime: Date | undefined =
+
+    const paymentTime: Date =
       paymentData?.payment_time ? new Date(paymentData.payment_time) : new Date();
 
     if (!orderId) {
@@ -101,33 +121,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, note: "order not updated (duplicate or not found)" });
     }
 
-    // If payment successful, update the User’s plan
+    // If payment successful, update the User’s plan using Mongo driver (NOT Mongoose)
     if (isSuccess) {
       const email = order.customerEmail; // You sent email in create-order
       if (email) {
-        const now = Date.now();
+        const users = await getUsersCollection();
 
-        // Map amount -> planType (keeps your usecase logic)
-        type PlanType = "free" | "intercollege" | "gender";
-        let planType: PlanType = "free";
-        if (order.amount === 69) planType = "intercollege";
-        if (order.amount === 169) planType = "gender";
-
-        await User.findOneAndUpdate(
-          { email },
+        await users.updateOne(
+          { email: email },
           {
-            planType,
-            planExpiry: new Date(now + 30 * 24 * 60 * 60 * 1000),
+            $set: {
+              planTier: mapAmountToPlanTier(order.amount), // ✅ accepts null/undefined
+              planExpiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
 
-            // Store the full raw payment JSON on the user as well
-            paymentDetails: {
-              transactionId: txId,
-              amount: order.amount,
-              paymentDate: paymentTime,
-              paymentMethod: paymentData, // Mixed
+              // Store the full raw payment info too
+              "paymentDetails.transactionId": txId ?? null,
+              "paymentDetails.amount": order.amount ?? null,
+              "paymentDetails.paymentDate": paymentTime,
+              "paymentDetails.paymentMethod": paymentData ?? null,
+
+              updatedAt: new Date(),
+            },
+            $setOnInsert: {
+              emailLower: email.trim().toLowerCase(),
+              createdAt: new Date(),
             },
           },
-          { new: true }
+          { upsert: false } // set true if you want to auto-create the user if missing
         );
       }
     }
