@@ -1,93 +1,98 @@
-// src/app/api/auth/email/register/route.ts
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
+import { hash } from "bcrypt";
+import { ObjectId } from "mongodb";
 import clientPromise from "@/lib/clientPromise";
-import { withDerivedUserFields } from "@/models/user.model";
+import { getUsersCollection, withDerivedUserFields } from "@/models/user.model";
 
-/** very light validation (UI should do stricter checks) */
-function isValidEmail(e: string) { return /\S+@\S+\.\S+/.test(e); }
-function isValidPassword(p: string) { return typeof p === "string" && p.length >= 8; }
-const HANDLE_RE = /^[a-zA-Z][a-zA-Z0-9._]{2,19}$/;
+export const runtime = "nodejs";
 
-export const dynamic = "force-dynamic";
+type Lane = "A" | "B";
+
+function normHandle(u: string) {
+  return u.trim();
+}
+function normEmail(e: string) {
+  return e.trim().toLowerCase();
+}
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const email = String(body.email ?? "").trim().toLowerCase();
-    const password = String(body.password ?? "");
-    const profileName = String(body.profileName ?? "").trim();
-    const username = String(body.username ?? "").trim(); // desired unique handle
+    const emailRaw = String(body?.email ?? "");
+    const password = String(body?.password ?? "");
+    const profileName = String(body?.profileName ?? "");
+    const usernameRaw = String(body?.username ?? "");
+    const lane: Lane = (body?.lane === "A" || body?.lane === "B") ? body.lane : "B";
 
-    if (!isValidEmail(email)) {
-      return NextResponse.json({ ok: false, reason: "invalid_email" }, { status: 400 });
-    }
-    if (!isValidPassword(password)) {
-      return NextResponse.json({ ok: false, reason: "weak_password" }, { status: 400 });
-    }
-    if (!HANDLE_RE.test(username)) {
-      return NextResponse.json({ ok: false, reason: "invalid_username" }, { status: 400 });
-    }
-    if (!profileName) {
-      return NextResponse.json({ ok: false, reason: "missing_profile_name" }, { status: 400 });
-    }
+    const email = normEmail(emailRaw);
+    const handle = normHandle(usernameRaw);
 
-    const client = await clientPromise;
-    const db = client.db();
-    const users = db.collection("users");
-
-    // ensure email unique
-    const existingByEmail = await users.findOne({ $or: [{ email }, { emailLower: email }] });
-    if (existingByEmail) {
-      return NextResponse.json({ ok: false, reason: "email_in_use" }, { status: 409 });
+    // Basic validation
+    if (!email || !email.includes("@")) {
+      return NextResponse.json({ ok: false, error: "invalid_email" }, { status: 400 });
+    }
+    if (password.length < 8) {
+      return NextResponse.json({ ok: false, error: "weak_password" }, { status: 400 });
+    }
+    if (!handle || handle.length < 3 || !/^[a-zA-Z0-9._-]+$/.test(handle)) {
+      return NextResponse.json({ ok: false, error: "invalid_username" }, { status: 400 });
+    }
+    if (!profileName || profileName.length < 2) {
+      return NextResponse.json({ ok: false, error: "invalid_profile_name" }, { status: 400 });
     }
 
-    // ensure handle unique
-    const usernameLower = username.toLowerCase();
-    const existingByHandle = await users.findOne({ handleLower: usernameLower });
-    if (existingByHandle) {
-      return NextResponse.json({ ok: false, reason: "username_taken" }, { status: 409 });
+    const users = await getUsersCollection();
+
+    // If email already exists (by derived or raw), bail with 409
+    const existing = await users.findOne({ $or: [{ emailLower: email }, { email }] });
+    if (existing) {
+      return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    // Hash password
+    const passwordHash = await hash(password, 10);
 
-    // verification lane (reuse logic from /email/start if you want)
-    const domain = email.split("@")[1] ?? "";
-    const isCollege =
-      (process.env.EXTRA_COLLEGE_DOMAINS ?? "").toLowerCase().split(",").map(s => s.trim()).includes(domain) ||
-      /\.edu$/i.test(domain) || /\.edu\.[a-z]{2,}$/i.test(domain) || /\.ac\.[a-z]{2,}$/i.test(domain);
+    // Decide verification status by lane
+    const verificationStatus = lane === "A" ? "auto" : "pending";
 
-    const doc = withDerivedUserFields({
+    // Prepare doc
+    const docBase = withDerivedUserFields({
+      _id: new ObjectId(),
       email,
-      name: profileName,
+      name: profileName,                 // optional: you might also keep displayName separately
       displayName: profileName,
-      handle: username,
+      handle,                            // case-preserving
+      // derived fields (emailLower/handleLower/displayNameLower) are set by helper
       passwordHash,
+      lane,
+      verificationStatus,
       planTier: "FREE",
-      collegeVerified: isCollege ? true : false,
       createdAt: new Date(),
       updatedAt: new Date(),
-      // optional metadata if you want:
-      // collegeName: isCollege ? domain : null,
     });
 
-    // write new user
-    const res = await users.insertOne(doc as any);
-    return NextResponse.json(
-      { ok: true, userId: String(res.insertedId), handle: username, collegeVerified: !!isCollege },
-      { status: 201 }
-    );
-  } catch (err: any) {
-    // handle duplicate key race (if indexes exist)
-    if (err?.code === 11000) {
-      if (String(err?.message || "").includes("handleLower")) {
-        return NextResponse.json({ ok: false, reason: "username_taken" }, { status: 409 });
+    // Insert with duplicate key handling (race-safe)
+    try {
+      await users.insertOne(docBase as any);
+    } catch (err: any) {
+      if (err?.code === 11000) {
+        // Duplicate key — figure out if it's emailLower or handleLower
+        const kp = err?.keyPattern || {};
+        if (kp.handleLower) {
+          return NextResponse.json({ ok: false, error: "username_taken" }, { status: 409 });
+        }
+        if (kp.emailLower || kp.email) {
+          return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
+        }
+        // Fallback
+        return NextResponse.json({ ok: false, error: "conflict" }, { status: 409 });
       }
-      if (String(err?.message || "").includes("emailLower")) {
-        return NextResponse.json({ ok: false, reason: "email_in_use" }, { status: 409 });
-      }
+      throw err;
     }
-    console.error("email/register error", err);
-    return NextResponse.json({ ok: false, reason: "server_error" }, { status: 500 });
+
+    return NextResponse.json({ ok: true }, { status: 201 });
+  } catch (e: any) {
+    console.error("register error:", e);
+    return NextResponse.json({ ok: false, error: "server_error", detail: e?.message }, { status: 500 });
   }
 }
