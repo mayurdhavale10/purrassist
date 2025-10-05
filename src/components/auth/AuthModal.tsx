@@ -10,7 +10,7 @@ import UsernameStep from "./UsernameStep";
 import RoleStep, { RoleType } from "./RoleStep";
 import IdUploadStep from "./IdUploadStep";
 import SuccessStep from "./SuccessStep";
-import OtpStep from "./OtpStep"; // NEW: email OTP step
+import OtpStep from "./OtpStep"; // if you’re using OTP
 
 export type SignupState = {
   email: string;
@@ -26,7 +26,6 @@ type Props = {
   open: boolean;
   onClose: () => void;
   defaultTab?: "login" | "signup";
-  /** optional: where to send lane A users after success */
   onLaneASuccessNavigate?: (href: string) => void;
 };
 
@@ -55,7 +54,6 @@ export default function AuthModal({
   const [state, setState] = useState<SignupState>(emptySignup);
   const [lane, setLane] = useState<Lane>(null);
 
-  // reset when closing
   useEffect(() => {
     if (!open) {
       setTab(defaultTab);
@@ -67,7 +65,6 @@ export default function AuthModal({
     }
   }, [open, defaultTab]);
 
-  /** Step 1: classify email → lane A/B */
   async function handleEmailNext(email: string) {
     setErr(null);
     setBusy(true);
@@ -89,43 +86,45 @@ export default function AuthModal({
     }
   }
 
-  /** After Username step → register, then sign in via Credentials */
-  async function handleRegisterThenLogin() {
+  /** 🔧 CHANGED: pass fresh values in, don’t read from (possibly stale) state */
+  async function handleRegisterThenLogin(payload: {
+    email: string;
+    password: string;
+    profileName: string;
+    username: string;
+  }) {
+    if (!lane) {
+      setErr("Please re-enter your email.");
+      setStepIdx(0);
+      return;
+    }
+
     setErr(null);
     setBusy(true);
     try {
-      // 1) Register (send lane we just determined)
       const reg = await fetch("/api/auth/email/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: state.email,
-          password: state.password,
-          profileName: state.profileName,
-          username: state.username,
-          lane, // IMPORTANT
-        }),
+        body: JSON.stringify({ ...payload, lane }), // use lane + payload
       });
       const rj = await reg.json();
       if (!reg.ok || !rj?.ok) throw new Error(rj?.error || "Registration failed");
 
-      // 2) Issue session cookie with NextAuth (credentials)
       const sres = await signIn("credentials", {
-        email: state.email,
-        password: state.password,
+        email: payload.email,
+        password: payload.password,
         redirect: false,
       });
       if (sres?.error) throw new Error(sres.error);
 
-      // 3) Branch by lane
       if (lane === "A") {
-        // Fast path: done!
-        setStepIdx(7); // Success index
+        setStepIdx(7);
         onLaneASuccessNavigate?.("/connections");
       } else {
-        // Lane B: kick off email OTP and show OTP step
-        await fetch("/api/auth/email-otp/start", { method: "POST", credentials: "include" });
-        setStepIdx(4); // OTP step index
+        // If you use email OTP in Lane B, kick it off here:
+        // await fetch("/api/auth/email-otp/start", { method: "POST", credentials: "include" });
+        // setStepIdx(4); // OTP step
+        setStepIdx(5); // skip OTP if you aren’t using it; go to Role
       }
     } catch (e: any) {
       setErr(e?.message || "Signup failed");
@@ -134,16 +133,18 @@ export default function AuthModal({
     }
   }
 
-  /** Login path (tab = login): call credentials directly */
   async function handleLoginPasswordNext(password: string) {
     setState((s) => ({ ...s, password }));
     setErr(null);
     setBusy(true);
     try {
-      const sres = await signIn("credentials", { email: state.email, password, redirect: false });
+      const sres = await signIn("credentials", {
+        email: state.email,
+        password,
+        redirect: false,
+      });
       if (sres?.error) throw new Error(sres.error);
-      // login successful
-      setStepIdx(7); // Success
+      setStepIdx(7);
     } catch (e: any) {
       setErr(e?.message || "Login failed");
     } finally {
@@ -151,7 +152,6 @@ export default function AuthModal({
     }
   }
 
-  /** Lane B → ID upload (with cookies) */
   async function handleIdUpload(file: File) {
     setBusy(true);
     setErr(null);
@@ -163,12 +163,12 @@ export default function AuthModal({
       const r = await fetch("/api/verification/upload", {
         method: "POST",
         body: fd,
-        credentials: "include", // IMPORTANT for session cookie
+        credentials: "include",
       });
       const j = await r.json();
       if (!r.ok || !j?.ok) throw new Error(j?.error || "Upload failed");
       setState((s) => ({ ...s, idFile: file, idUploadedUrl: j.url ?? null }));
-      setStepIdx(7); // Success
+      setStepIdx(7);
     } catch (e: any) {
       setErr(e?.message || "Upload failed");
     } finally {
@@ -218,25 +218,35 @@ export default function AuthModal({
         value={state.username}
         onBack={() => setStepIdx(2)}
         onNext={async (u) => {
+          // update local state so UI reflects it
           setState((s) => ({ ...s, username: u }));
-          if (tab === "signup") await handleRegisterThenLogin();
-          else setStepIdx(4);
+          if (tab === "signup") {
+            // ✅ pass the freshly entered username in the payload
+            await handleRegisterThenLogin({
+              email: state.email,
+              password: state.password,
+              profileName: state.profileName,
+              username: u,
+            });
+          } else {
+            setStepIdx(4);
+          }
         }}
       />,
 
-      // 4) OTP (Lane B)
-      <OtpStep
-        key="otp"
-        email={state.email}
-        onBack={() => setStepIdx(3)}
-        onVerified={() => setStepIdx(5)} // proceed to Role after OTP passes
-      />,
+      // 4) (Optional) OTP step if you enabled it
+      // <OtpStep
+      //   key="otp"
+      //   email={state.email}
+      //   onBack={() => setStepIdx(3)}
+      //   onVerified={() => setStepIdx(5)}
+      // />,
 
       // 5) Role (Lane B)
       <RoleStep
         key="role"
         value={state.role}
-        onBack={() => setStepIdx(4)}
+        onBack={() => setStepIdx(3)} // or 4 if you use OTP
         onNext={(role) => {
           setState((s) => ({ ...s, role }));
           setStepIdx(6); // go to ID upload
@@ -262,10 +272,7 @@ export default function AuthModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-
-      {/* Glassy card */}
       <div className="relative w-full max-w-md mx-4 rounded-3xl border border-white/10 bg-white/10 backdrop-blur-xl shadow-2xl">
         <div className="p-6">
           {/* Header */}
@@ -290,10 +297,13 @@ export default function AuthModal({
                 tab === "login" ? "bg-white/30 text-white" : "text-white/70 hover:text-white"
               }`}
               onClick={() => {
-                setTab("login");
-                setStepIdx(0);
-                setErr(null);
+                if (!busy) {
+                  setTab("login");
+                  setStepIdx(0);
+                  setErr(null);
+                }
               }}
+              disabled={busy}
             >
               Log in
             </button>
@@ -302,10 +312,13 @@ export default function AuthModal({
                 tab === "signup" ? "bg-white/30 text-white" : "text-white/70 hover:text-white"
               }`}
               onClick={() => {
-                setTab("signup");
-                setStepIdx(0);
-                setErr(null);
+                if (!busy) {
+                  setTab("signup");
+                  setStepIdx(0);
+                  setErr(null);
+                }
               }}
+              disabled={busy}
             >
               Sign up
             </button>
@@ -314,10 +327,10 @@ export default function AuthModal({
           {/* Social row */}
           <div className="mb-5">
             <button
-              onClick={() => signIn("google")}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/15 py-2.5 text-white hover:bg-white/25 transition"
+              onClick={() => !busy && signIn("google")}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/15 py-2.5 text-white hover:bg-white/25 transition disabled:opacity-50"
+              disabled={busy}
             >
-              {/* Google icon omitted for brevity */}
               Continue with Google
             </button>
           </div>
@@ -349,11 +362,10 @@ export default function AuthModal({
                 onGoogle={() => signIn("google")}
               />
             ) : (
-              steps[1] // password (login path)
+              steps[1]
             )}
           </div>
 
-          {/* Footer / error */}
           {!!err && <p className="mt-4 text-sm text-red-300">{err}</p>}
           {busy && <p className="mt-4 text-sm text-white/70">Working…</p>}
         </div>
