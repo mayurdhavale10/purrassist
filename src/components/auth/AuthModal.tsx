@@ -10,6 +10,7 @@ import UsernameStep from "./UsernameStep";
 import RoleStep, { RoleType } from "./RoleStep";
 import IdUploadStep from "./IdUploadStep";
 import SuccessStep from "./SuccessStep";
+import OtpStep from "./OtpStep";
 
 export type SignupState = {
   email: string;
@@ -121,14 +122,22 @@ export default function AuthModal({
 
       // 3) Branch by lane
       if (lane === "A") {
-        setStepIdx(7); // success
-        // close or redirect; fallback to close if no navigate prop
+        setStepIdx(7); // Success
         (onLaneASuccessNavigate && onLaneASuccessNavigate("/connections")) || onClose();
         return;
-      } else {
-        // Lane B: Role → ID Upload
-        setStepIdx(5); // (if you add OTP, move to 4 first)
       }
+
+      // Lane B → kick off OTP email
+      const otpStart = await fetch("/api/auth/email-otp/start", {
+        method: "POST",
+        credentials: "include",
+      });
+      const oj = await otpStart.json();
+      if (!otpStart.ok || !oj?.ok) {
+        // don’t block user entirely; but surface error so they can retry
+        throw new Error(oj?.error || "Could not send verification code");
+      }
+      setStepIdx(4); // go to OTP step
     } catch (e: any) {
       setErr(e?.message || "Signup failed");
     } finally {
@@ -175,7 +184,6 @@ export default function AuthModal({
       if (!r.ok || !j?.ok) throw new Error(j?.error || "Upload failed");
       setState((s) => ({ ...s, idFile: file, idUploadedUrl: j.url ?? null }));
       setStepIdx(7); // success
-      // auto-close shortly after success (optional)
       setTimeout(() => onClose(), 800);
     } catch (e: any) {
       setErr(e?.message || "Upload failed");
@@ -240,13 +248,19 @@ export default function AuthModal({
         }}
       />,
 
-      // 4) (Optional) OTP step — if you add it later, insert here
+      // 4) OTP (Lane B)
+      <OtpStep
+        key="otp"
+        email={state.email}
+        onBack={() => setStepIdx(3)}
+        onVerified={() => setStepIdx(5)} // go to Role on success
+      />,
 
       // 5) Role (Lane B)
       <RoleStep
         key="role"
         value={state.role}
-        onBack={() => setStepIdx(3)} // or 4 if you add OTP
+        onBack={() => setStepIdx(4)}
         onNext={(role) => {
           setState((s) => ({ ...s, role }));
           setStepIdx(6); // go to ID upload
@@ -351,7 +365,7 @@ export default function AuthModal({
           </div>
 
           {/* Steps */}
-          <div className="min-h-[240px]">
+          <div className="min-h-[260px]">
             {tab === "signup" ? (
               steps[stepIdx]
             ) : stepIdx === 0 ? (
