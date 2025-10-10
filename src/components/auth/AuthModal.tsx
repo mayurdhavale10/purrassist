@@ -18,7 +18,7 @@ export type SignupState = {
   profileName: string;
   username: string;
   role: RoleType | null;
-  orgName: string;              // NEW
+  orgName: string;
   idFile: File | null;          // optional local echo
   idUploadedUrl?: string | null;
 };
@@ -27,6 +27,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   defaultTab?: "login" | "signup";
+  /** optional: where to send lane A users after success */
   onLaneASuccessNavigate?: (href: string) => void;
 };
 
@@ -36,12 +37,13 @@ const emptySignup: SignupState = {
   profileName: "",
   username: "",
   role: null,
-  orgName: "",                  // NEW
+  orgName: "",
   idFile: null,
   idUploadedUrl: null,
 };
 
 type Lane = "A" | "B" | null;
+type UploadResult = { ok: boolean; verified?: boolean; promoted?: boolean; error?: string };
 
 export default function AuthModal({
   open,
@@ -56,6 +58,7 @@ export default function AuthModal({
   const [state, setState] = useState<SignupState>(emptySignup);
   const [lane, setLane] = useState<Lane>(null);
 
+  // reset when closing
   useEffect(() => {
     if (!open) {
       setTab(defaultTab);
@@ -67,7 +70,7 @@ export default function AuthModal({
     }
   }, [open, defaultTab]);
 
-  // Step 1: classify email → lane A/B
+  /** Step 1: classify email → lane A/B */
   async function handleEmailNext(email: string) {
     setErr(null);
     setBusy(true);
@@ -89,7 +92,7 @@ export default function AuthModal({
     }
   }
 
-  // Register (Option B: users for Lane A; pending_signups for Lane B)
+  /** Register (Option B: users for Lane A; pending_signups for Lane B) */
   async function handleRegister(payload: {
     email: string;
     password: string;
@@ -113,7 +116,7 @@ export default function AuthModal({
       if (!res.ok || !j?.ok) throw new Error(j?.error || "Registration failed");
 
       if (lane === "A") {
-        // Lane A → user already created; sign in immediately
+        // Lane A → user was created on the server; sign in now
         const sres = await signIn("credentials", {
           email: payload.email,
           password: payload.password,
@@ -125,17 +128,14 @@ export default function AuthModal({
         return;
       }
 
-      // Lane B → pending created or resumed
-      // Trigger OTP code (public endpoint; email in body)
+      // Lane B → pending created or resumed → start OTP
       const otpStart = await fetch("/api/auth/email-otp/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: payload.email }),
       });
       const oj = await otpStart.json();
-      if (!otpStart.ok || !oj?.ok) {
-        throw new Error(oj?.error || "Could not send verification code");
-      }
+      if (!otpStart.ok || !oj?.ok) throw new Error(oj?.error || "Could not send verification code");
       setStepIdx(4); // go to OTP step
     } catch (e: any) {
       setErr(e?.message || "Signup failed");
@@ -144,7 +144,7 @@ export default function AuthModal({
     }
   }
 
-  // Login (credentials)
+  /** Login path (tab = login) */
   async function handleLoginPasswordNext(password: string) {
     setState((s) => ({ ...s, password }));
     setErr(null);
@@ -168,7 +168,12 @@ export default function AuthModal({
   const steps = useMemo(
     () => [
       // 0) Email
-      <EmailStep key="email" value={state.email} onNext={handleEmailNext} onGoogle={() => signIn("google")} />,
+      <EmailStep
+        key="email"
+        value={state.email}
+        onNext={handleEmailNext}
+        onGoogle={() => signIn("google")}
+      />,
 
       // 1) Password
       <PasswordStep
@@ -221,7 +226,7 @@ export default function AuthModal({
         key="otp"
         email={state.email}
         onBack={() => setStepIdx(3)}
-        onVerified={() => setStepIdx(5)} // → Role
+        onVerified={() => setStepIdx(5)} // → Role/Org
       />,
 
       // 5) Role/Org (Lane B)
@@ -236,7 +241,7 @@ export default function AuthModal({
         }}
       />,
 
-      // 6) ID Upload (Lane B) — NEW props (no `file` prop!)
+      // 6) ID Upload (Lane B)
       <IdUploadStep
         key="id"
         email={state.email}
@@ -244,13 +249,29 @@ export default function AuthModal({
         orgName={state.orgName}
         initialFile={state.idFile}
         onBack={() => setStepIdx(5)}
-        onSuccess={(r) => {
-          if (r.ok) {
+        onSuccess={async (r: UploadResult) => {
+          if (!r?.ok) {
+            setErr(r?.error || "Upload failed");
+            return;
+          }
+          if (r.verified === true) {
+            // ✅ OCR matched → user promoted & verified → sign in now
+            const sres = await signIn("credentials", {
+              email: state.email,
+              password: state.password,
+              redirect: false,
+            });
+            if (sres?.error) {
+              setErr(sres.error);
+              return;
+            }
             setStepIdx(7);
-            // optional delayed close:
-            // setTimeout(() => onClose(), 600);
           } else {
-            setErr(r.error || "Upload failed");
+            // ❌ not verified (submitted for manual review / unclear photo)
+            setErr(
+              "We couldn’t auto-verify your ID. Please upload a clearer photo showing your name, or wait for manual review."
+            );
+            // stay on step 6 (upload) so they can try again
           }
         }}
       />,
@@ -258,7 +279,7 @@ export default function AuthModal({
       // 7) Success
       <SuccessStep key="done" email={state.email} onFinish={onClose} />,
     ],
-    // deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, tab, lane, onClose]
   );
 
@@ -278,7 +299,11 @@ export default function AuthModal({
               <img src="/purr_assit_logo.webp" alt="PurrAssist" className="h-8 w-8 rounded" />
               <h2 className="text-white/90 text-lg font-semibold">PurrAssist</h2>
             </div>
-            <button onClick={onClose} className="text-white/70 hover:text-white transition" aria-label="Close">
+            <button
+              onClick={onClose}
+              className="text-white/70 hover:text-white transition"
+              aria-label="Close"
+            >
               ✕
             </button>
           </div>
@@ -334,7 +359,9 @@ export default function AuthModal({
               <div className="w-full border-t border-white/10" />
             </div>
             <div className="relative flex justify-center">
-              <span className="bg-transparent px-2 text-xs text-white/60 backdrop-blur">or with email</span>
+              <span className="bg-transparent px-2 text-xs text-white/60 backdrop-blur">
+                or with email
+              </span>
             </div>
           </div>
 
