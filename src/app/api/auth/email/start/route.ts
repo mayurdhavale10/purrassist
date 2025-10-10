@@ -1,56 +1,76 @@
 // src/app/api/auth/email/start/route.ts
 import { NextResponse } from "next/server";
 
-/** Keep in sync with your auth.config rules (simplified here) */
-const PUBLIC_BLOCK = new Set([
-  "gmail.com","yahoo.com","aol.com","proton.me","protonmail.com",
-  "icloud.com","mail.com","yandex.com","rediffmail.com","hotmail.com"
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/**
+ * Lane rules:
+ * - A (auto): academic domains (.edu, .edu.xx, .ac.xx, .edu.in, .ac.in) OR in EXTRA_TRUSTED_DOMAINS
+ * - B (verify): everything else (including gmail/outlook/live/etc.)
+ *
+ * This only *classifies*; it does NOT create any DB docs.
+ */
+
+const PUBLIC_DOMAINS = new Set<string>([
+  "gmail.com",
+  "yahoo.com",
+  "hotmail.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "icloud.com",
+  "mail.com",
+  "yandex.com",
+  "rediffmail.com",
+  "outlook.com", // public mailbox → stays Lane B here
+  "live.com",    // public mailbox → stays Lane B here
 ]);
-const PUBLIC_ALLOWED = new Set(["outlook.com","live.com"]);
-const EXTRA = (process.env.EXTRA_COLLEGE_DOMAINS ?? "")
-  .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 
-const ACADEMIC_PATTERNS = [
-  /\.edu$/i, /\.edu\.[a-z]{2,}$/i, /\.ac\.[a-z]{2,}$/i
-];
+// Extra domains you trust like work/company domains (comma-separated)
+const EXTRA_TRUSTED_DOMAINS: string[] = (process.env.EXTRA_TRUSTED_DOMAINS ?? "")
+  .split(",")
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
 
-function classifyDomain(email: string) {
-  const domain = (email.split("@")[1] ?? "").toLowerCase();
-  if (!domain) return { kind: "invalid" as const };
+// Broad academic patterns: .edu, .edu.xx, .ac.xx, .edu.in, .ac.in…
+const ACADEMIC_REGEXES = [/\.edu$/i, /\.edu\.[a-z]{2,}$/i, /\.ac\.[a-z]{2,}$/i];
 
-  const isAcademic =
-    EXTRA.includes(domain) ||
-    ACADEMIC_PATTERNS.some((re) => re.test(domain));
-  if (isAcademic) return { kind: "college" as const, domain };
-
-  if (PUBLIC_ALLOWED.has(domain)) return { kind: "work" as const, domain }; // allow Outlook/Live as “work”
-
-  if (PUBLIC_BLOCK.has(domain)) return { kind: "public" as const, domain };
-
-  // Everything else treated as “work/corporate-like”
-  return { kind: "work" as const, domain };
+function extractDomain(email: string): string {
+  const idx = email.indexOf("@");
+  return idx === -1 ? "" : email.slice(idx + 1).toLowerCase();
 }
 
-export const dynamic = "force-dynamic";
+function isAcademicDomain(domain: string): boolean {
+  if (!domain) return false;
+  // Block obvious public mail providers from being treated as academic
+  if (PUBLIC_DOMAINS.has(domain)) return false;
+  // Allow configured trusted domains (company/college extras)
+  if (EXTRA_TRUSTED_DOMAINS.includes(domain)) return true;
+  // Regex match for academic
+  return ACADEMIC_REGEXES.some((re) => re.test(domain));
+}
 
 export async function POST(req: Request) {
   try {
-    const { email } = await req.json();
-    const e = String(email ?? "").trim().toLowerCase();
-    if (!e || !e.includes("@")) {
-      return NextResponse.json({ ok: false, reason: "invalid_email" }, { status: 400 });
+    const { email: rawEmail } = await req.json().catch(() => ({}));
+    const email = String(rawEmail || "").trim().toLowerCase();
+
+    if (!email || !email.includes("@")) {
+      return NextResponse.json({ ok: false, error: "invalid_email" }, { status: 400 });
     }
 
-    const { kind, domain } = classifyDomain(e) as any;
+    const domain = extractDomain(email);
+    const lane: "A" | "B" = isAcademicDomain(domain) ? "A" : "B";
 
-    // UI lanes:
-    // A = Fast path (college domains)
-    // B = ID verification required (public/work)
-    const lane = kind === "college" ? "A" : "B";
-
-    return NextResponse.json({ ok: true, email: e, domain, kind, lane }, { status: 200 });
-  } catch (err) {
-    console.error("email/start error", err);
-    return NextResponse.json({ ok: false, reason: "server_error" }, { status: 500 });
+    // Return minimal hints (no DB writes here)
+    return NextResponse.json({
+      ok: true,
+      lane,
+      domain,
+    });
+  } catch (err: any) {
+    console.error("[email/start] error:", err);
+    return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
   }
 }

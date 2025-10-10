@@ -5,18 +5,16 @@ import Credentials from "next-auth/providers/credentials";
 import clientPromise from "@/lib/clientPromise";
 import { compare } from "bcrypt";
 
-/** Resolve Google env keys (supports your AUTH_* names, with GOOGLE_* fallback) */
+/** Resolve Google env keys (supports AUTH_* or GOOGLE_* names) */
 const GOOGLE_ID = process.env.AUTH_GOOGLE_ID ?? process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_SECRET =
   process.env.AUTH_GOOGLE_SECRET ?? process.env.GOOGLE_CLIENT_SECRET!;
 
-/** public/webmail domains to block (Outlook/Live are *not* blocked anymore) */
+/** webmail domains you don't want to allow via Google (credentials is separate) */
 const PUBLIC_DOMAINS = new Set([
   "gmail.com",
   "yahoo.com",
   "hotmail.com",
-  // "outlook.com", // unblocked
-  // "live.com",    // unblocked
   "aol.com",
   "proton.me",
   "protonmail.com",
@@ -26,10 +24,10 @@ const PUBLIC_DOMAINS = new Set([
   "rediffmail.com",
 ]);
 
-/** explicitly allowed *public* domains (no extra verification) */
+/** explicitly allowed public domains for Google sign-in (if you want) */
 const ALLOWED_PUBLIC_DOMAINS = new Set<string>(["outlook.com", "live.com"]);
 
-/** extra allowed college domains via env (comma separated) */
+/** optionally allow extra college domains via env (comma-separated) */
 const EXTRA_COLLEGE_DOMAINS: string[] = (process.env.EXTRA_COLLEGE_DOMAINS ?? "")
   .split(",")
   .map((d) => d.trim().toLowerCase())
@@ -46,7 +44,7 @@ function isCollegeDomain(domain: string): boolean {
   return ACADEMIC_REGEXES.some((re) => re.test(d));
 }
 
-/** Final sign-in eligibility for Google only */
+/** Google-only eligibility (Credentials is always allowed if password matches) */
 function isEligibleSignInDomain(domain: string): boolean {
   const d = (domain || "").toLowerCase();
   if (!d) return false;
@@ -56,7 +54,6 @@ function isEligibleSignInDomain(domain: string): boolean {
 
 const authConfig: NextAuthConfig = {
   providers: [
-    // Google OAuth (kept)
     Google({
       clientId: GOOGLE_ID,
       clientSecret: GOOGLE_SECRET,
@@ -66,12 +63,11 @@ const authConfig: NextAuthConfig = {
           email: profile.email,
           name: profile.name,
           image: profile.picture,
-          gender: null,
+          gender: null, // keep as-is; we refresh from DB in callbacks
         };
       },
     }),
 
-    // Credentials (email + password) — NEW
     Credentials({
       name: "Email & Password",
       credentials: {
@@ -87,7 +83,7 @@ const authConfig: NextAuthConfig = {
         const db = client.db();
         const users = db.collection("users");
 
-        // Support both derived and raw email fields
+        // find by derived or raw email
         const user = await users.findOne({
           $or: [{ emailLower: email }, { email }],
         });
@@ -109,56 +105,96 @@ const authConfig: NextAuthConfig = {
   ],
 
   callbacks: {
-    /**
-     * Only apply the domain gate to Google sign-ins.
-     * Credentials sign-ins skip this (we already own the email).
-     */
+    /** Gate Google by domain; credentials bypass the gate */
     async signIn({ account, profile }) {
       if (account?.provider === "google") {
         const email = profile?.email?.toLowerCase();
         const domain = email?.split("@")[1] ?? "";
         return !!email && isEligibleSignInDomain(domain);
       }
-      // credentials or anything else → allowed
-      return true;
+      return true; // credentials or other providers
     },
 
+    /** Put DB-backed fields on the token so they flow to the session */
     async jwt({ token, user, trigger }) {
+      // carry basics on first sign-in
       if (user) {
         (token as any).id = (user as any).id;
         (token as any).email = (user as any).email;
         (token as any).gender = (user as any).gender ?? null;
       }
 
-      // refresh gender from DB if missing / on update
-      if (trigger === "update" || (token as any).gender == null) {
+      // refresh extra fields from DB when missing or on update
+      const needsRefresh =
+        trigger === "update" ||
+        (token as any).lane === undefined ||
+        (token as any).verificationStatus === undefined ||
+        (token as any).primaryOrgName === undefined;
+
+      if (needsRefresh) {
         try {
           const client = await clientPromise;
           const db = client.db();
           const users = db.collection("users");
-          const dbUser = await users.findOne({ email: (token as any).email });
-          if (dbUser) (token as any).gender = dbUser.gender ?? null;
+
+          const emailLower =
+            (token as any).email?.toLowerCase?.() ?? (token as any).email ?? "";
+          const dbUser = await users.findOne(
+            { $or: [{ emailLower }, { email: emailLower }] },
+            {
+              projection: {
+                gender: 1,
+                lane: 1,
+                verificationStatus: 1,
+                primaryOrgId: 1,
+                primaryOrgName: 1,
+                primaryOrgSlug: 1,
+                primaryOrgType: 1,
+              },
+            }
+          );
+
+          if (dbUser) {
+            (token as any).gender = dbUser.gender ?? null;
+            (token as any).lane = dbUser.lane ?? null;
+            (token as any).verificationStatus = dbUser.verificationStatus ?? null;
+
+            (token as any).primaryOrgId = dbUser.primaryOrgId?.toString?.() || null;
+            (token as any).primaryOrgName = dbUser.primaryOrgName ?? null;
+            (token as any).primaryOrgSlug = dbUser.primaryOrgSlug ?? null;
+            (token as any).primaryOrgType = dbUser.primaryOrgType ?? null;
+          }
         } catch (e) {
           console.error("JWT callback DB error:", e);
         }
       }
+
       return token;
     },
 
+    /** Expose the fields to the client session */
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = (token as any).id as string;
-        (session.user as any).gender = (token as any).gender as
-          | "male"
-          | "female"
-          | "other"
-          | null;
+        (session.user as any).gender = (token as any).gender ?? null;
+
+        (session.user as any).lane = (token as any).lane ?? null;
+        (session.user as any).verificationStatus =
+          (token as any).verificationStatus ?? null;
+
+        (session.user as any).primaryOrgId = (token as any).primaryOrgId ?? null;
+        (session.user as any).primaryOrgName =
+          (token as any).primaryOrgName ?? null;
+        (session.user as any).primaryOrgSlug =
+          (token as any).primaryOrgSlug ?? null;
+        (session.user as any).primaryOrgType =
+          (token as any).primaryOrgType ?? null;
       }
       return session;
     },
   },
 
-  // Optional: custom error page for blocked Google domains
+  // You can add a custom error page if you like:
   // pages: { error: "/auth/college-only" },
 };
 

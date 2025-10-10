@@ -1,45 +1,180 @@
 // src/app/api/verification/upload/route.ts
 import { NextResponse } from "next/server";
+import { ObjectId, Collection } from "mongodb";
 import clientPromise from "@/lib/clientPromise";
+import { getUsersCollection, withDerivedUserFields } from "@/models/user.model";
+import { resolveOrgFromEmail, resolveOrgByNameFuzzy, OrgType } from "@/lib/orgs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function normEmail(e: string) {
-  return e.trim().toLowerCase();
-}
-function suggestHandle(base: string) {
-  const b = (base || "user").replace(/[^a-z0-9._-]/gi, "").slice(0, 28);
-  const suffix = Math.floor(1000 + Math.random() * 9000); // 4 digits
-  return `${b}${suffix}`;
+/** Local org shape for this route (keeps TS happy regardless of helper internals) */
+type OrganizationDoc = {
+  _id: ObjectId;
+  slug: string;
+  displayName?: string;             // some helpers may use displayName
+  name?: string;                    // others may use name — we normalize below
+  type?: OrgType | string | null;
+  org_domains?: Record<string, boolean>; // some helpers may use org_domains
+  domains?: Record<string, boolean>;     // others may use domains — we normalize below
+  createdAt?: Date;
+  updatedAt?: Date;
+};
+
+type OrgSeed = {
+  slug: string;
+  displayName: string;
+  type: OrgType | null;
+  domains?: Record<string, boolean>;
+};
+
+function normalizeOrgName(org: OrganizationDoc | null | undefined): string {
+  if (!org) return "";
+  return (org.displayName ?? org.name ?? "").toString();
 }
 
+function normalizeOrgDomains(org: OrganizationDoc | null | undefined): Record<string, boolean> {
+  if (!org) return {};
+  return org.org_domains ?? org.domains ?? {};
+}
+
+/** Upsert org by slug and return the full doc */
+async function ensureOrganization(
+  orgs: Collection<OrganizationDoc>,
+  seed: OrgSeed
+): Promise<OrganizationDoc> {
+  const now = new Date();
+  await orgs.updateOne(
+    { slug: seed.slug },
+    {
+      $setOnInsert: {
+        slug: seed.slug,
+        displayName: seed.displayName,
+        type: seed.type,
+        org_domains: seed.domains ?? {},
+        createdAt: now,
+      },
+      $set: {
+        updatedAt: now,
+        displayName: seed.displayName,
+        type: seed.type,
+        ...(seed.domains ? { org_domains: seed.domains } : {}),
+      },
+    },
+    { upsert: true }
+  );
+  const doc = await orgs.findOne({ slug: seed.slug });
+  if (!doc) throw new Error("Failed to upsert organization");
+  return doc;
+}
+
+/**
+ * Option B promotion:
+ * multipart/form-data:
+ *  - file      : File (required)
+ *  - email     : string (required; pending email)
+ *  - role      : "College" | "School" | "Professional" (optional)
+ *  - orgType   : "college" | "school" | "professional" (optional; defaults "college")
+ *  - orgName   : string (optional)
+ */
 export async function POST(req: Request) {
   try {
-    const contentType = req.headers.get("content-type") || "";
-    if (!contentType.includes("multipart/form-data")) {
+    const ct = req.headers.get("content-type") || "";
+    if (!ct.includes("multipart/form-data")) {
       return NextResponse.json({ ok: false, error: "expected_form_data" }, { status: 400 });
     }
 
     const form = await req.formData();
-
-    const emailRaw = String(form.get("email") ?? "");
-    const role = String(form.get("role") ?? "").trim() || null;       // optional
-    const orgType = String(form.get("orgType") ?? "").trim() || null; // optional: "college"|"school"|"professional"
-    const orgName = String(form.get("orgName") ?? "").trim() || null; // optional
-
     const file = form.get("file") as File | null;
+    const emailRaw = String(form.get("email") ?? "").trim().toLowerCase();
+    const role = (String(form.get("role") ?? "").trim() || null) as
+      | "College"
+      | "School"
+      | "Professional"
+      | null;
 
-    const email = normEmail(emailRaw);
-    if (!email || !email.includes("@")) {
+    // Default orgType to "college" so it's never undefined (satisfy OrgType)
+    const orgTypeInput = (String(form.get("orgType") ?? "").trim().toLowerCase() || "college") as
+      | "college"
+      | "school"
+      | "professional";
+    const orgType: OrgType = orgTypeInput; // <- typed
+    const orgName = (String(form.get("orgName") ?? "").trim() || null) as string | null;
+
+    if (!emailRaw || !emailRaw.includes("@")) {
       return NextResponse.json({ ok: false, error: "invalid_email" }, { status: 400 });
     }
     if (!file || !file.size) {
       return NextResponse.json({ ok: false, error: "missing_file" }, { status: 400 });
     }
 
-    // Placeholder file upload step.
-    // TODO: Upload `file` to S3/Cloudinary and capture the public URL.
+    const client = await clientPromise;
+    const db = client.db();
+    const users = await getUsersCollection();
+    const pending = db.collection("pending_signups");
+    const orgs = db.collection<OrganizationDoc>("organizations");
+
+    // If already promoted, block
+    const inUsers = await users.findOne(
+      { $or: [{ emailLower: emailRaw }, { email: emailRaw }] },
+      { projection: { _id: 1 } }
+    );
+    if (inUsers) {
+      return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
+    }
+
+    // Must have pending + verified email
+    const p = await pending.findOne(
+      { emailLower: emailRaw },
+      {
+        projection: {
+          _id: 1,
+          email: 1,
+          emailLower: 1,
+          displayName: 1,
+          displayNameLower: 1,
+          handle: 1,
+          handleLower: 1,
+          passwordHash: 1,
+          lane: 1,
+          emailVerifiedAt: 1,
+        },
+      }
+    );
+    if (!p) {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+    if (!p.emailVerifiedAt) {
+      return NextResponse.json({ ok: false, error: "email_not_verified" }, { status: 400 });
+    }
+
+    // Org via email domain first
+    let chosenOrg: OrganizationDoc | null = null;
+    const domainGuess = await resolveOrgFromEmail(emailRaw); // { org, inferredFrom }
+    if (domainGuess?.org) {
+      const org = domainGuess.org as OrganizationDoc;
+      chosenOrg = await ensureOrganization(orgs, {
+        slug: org.slug,
+        displayName: normalizeOrgName(org),
+        type: (org.type as OrgType) ?? orgType,
+        domains: normalizeOrgDomains(org),
+      });
+    }
+
+    // If still none and user provided a name → fuzzy by name
+    if (!chosenOrg && orgName) {
+      // resolveOrgByNameFuzzy requires { name, type: OrgType }
+      const fuzzy = await resolveOrgByNameFuzzy({ name: orgName, type: orgType });
+      const org = fuzzy.org as OrganizationDoc;
+      chosenOrg = await ensureOrganization(orgs, {
+        slug: org.slug,
+        displayName: normalizeOrgName(org),
+        type: (org.type as OrgType) ?? orgType,
+        domains: normalizeOrgDomains(org),
+      });
+    }
+
+    // (Stub) store basic file metadata; plug S3/Cloudinary later
     const fileMeta = {
       fileName: file.name,
       mimeType: file.type,
@@ -47,124 +182,37 @@ export async function POST(req: Request) {
       url: null as string | null,
     };
 
-    const client = await clientPromise;
-    const db = client.db();
-
-    const pending = db.collection("pending_signups");
-    const users = db.collection("users");
-
-    // 1) Find pending signup; must be email-verified to proceed
-    const p = await pending.findOne(
-      { emailLower: email },
-      {
-        projection: {
-          email: 1,
-          emailLower: 1,
-          displayName: 1,
-          displayNameLower: 1,
-          desiredHandle: 1,
-          desiredHandleLower: 1,
-          passwordHash: 1,
-          lane: 1,
-          emailVerifiedAt: 1,
-          createdAt: 1,
-        },
-      }
-    );
-
-    if (!p) {
-      // Don't leak existence—generic error is okay here
-      return NextResponse.json({ ok: false, error: "not_found_or_expired" }, { status: 404 });
-    }
-
-    if (!p.emailVerifiedAt) {
-      return NextResponse.json({ ok: false, error: "email_not_verified" }, { status: 400 });
-    }
-
-    // 2) Block if user already exists (rare race)
-    const existingUser = await users.findOne(
-      { $or: [{ emailLower: email }, { email }] },
-      { projection: { _id: 1 } }
-    );
-    if (existingUser) {
-      // Already promoted or registered via another flow
-      // Safe to delete pending to avoid confusion
-      await pending.deleteOne({ _id: p._id });
-      return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
-    }
-
-    // 3) Enforce handle uniqueness *now* (only at promotion time)
-    let handle = (p.desiredHandle as string) || "";
-    let handleLower = (p.desiredHandleLower as string) || "";
-    if (!handle || !/^[a-zA-Z0-9._-]{3,30}$/.test(handle)) {
-      handle = "user";
-      handleLower = "user";
-    }
-
-    const handleTaken = await users.findOne(
-      { handleLower },
-      { projection: { _id: 1 } }
-    );
-    if (handleTaken) {
-      // Suggest a new handle and ask client to bounce user to username step again.
-      const suggested = suggestHandle(handleLower);
-      return NextResponse.json(
-        { ok: false, error: "username_taken", suggestedHandle: suggested },
-        { status: 409 }
-      );
-    }
-
-    // 4) Build the real user document (verificationStatus stays "pending")
     const now = new Date();
-    const userDoc = {
-      email: p.email || email,
-      emailLower: email,
+    const userDoc = withDerivedUserFields({
+      _id: new ObjectId(),
+      email: p.email || emailRaw,
+      displayName: p.displayName || null,
+      handle: p.handle || null,
+      passwordHash: p.passwordHash || null,
 
-      // names
-      name: p.displayName ?? null,
-      displayName: p.displayName ?? null,
-      displayNameLower: (p.displayNameLower as string) ?? (p.displayName || "").toLowerCase(),
-
-      // public handle
-      handle,
-      handleLower,
-
-      // local auth
-      passwordHash: p.passwordHash ?? null,
-
-      // signup / verification
-      lane: (p.lane as "A" | "B") ?? "B",
-      verificationStatus: "pending" as const,
+      lane: "B",
+      verificationStatus: "pending",
       role,
-
-      // org + file metadata
+      idUploadUrl: fileMeta.url,
       verificationOrgType: orgType,
       verificationOrgName: orgName,
       verificationFile: fileMeta,
-      idUploadUrl: fileMeta.url,
 
-      // product defaults
-      planTier: "FREE" as const,
-      planExpiry: null as Date | null,
+      primaryOrgId: chosenOrg?._id || null,
+      primaryOrgSlug: chosenOrg?.slug || null,
+      primaryOrgName: normalizeOrgName(chosenOrg) || null,
 
-      // timestamps
+      planTier: "FREE",
       createdAt: now,
       updatedAt: now,
-    };
+    });
 
-    // 5) Insert into users
-    const insertRes = await users.insertOne(userDoc as any);
-
-    // 6) Cleanup pending
+    await users.insertOne(userDoc as any);
     await pending.deleteOne({ _id: p._id });
 
-    // 7) Respond; client should now call signIn("credentials")
-    return NextResponse.json(
-      { ok: true, userId: insertRes.insertedId.toString(), url: fileMeta.url },
-      { status: 200 }
-    );
-  } catch (err: any) {
-    console.error("[verification/upload] error", err);
+    return NextResponse.json({ ok: true, promoted: true });
+  } catch (e: any) {
+    console.error("[verification/upload] error:", e?.message || e);
     return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
   }
 }
