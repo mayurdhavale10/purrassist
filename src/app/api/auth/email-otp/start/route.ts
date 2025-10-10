@@ -1,26 +1,34 @@
-// src/app/api/auth/email-otp/start/route.ts
 import { NextResponse } from "next/server";
-import { auth } from "../../../../../../auth"; // or "@/auth" if in src/
-import { getUsersCollection } from "@/models/user.model";
+import clientPromise from "@/lib/clientPromise";
 import { generateCode, hashCode, addMinutes, canSendAgain } from "@/lib/otp";
 import { sendOtpEmail } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Public endpoint for pending signups (no session yet).
+ * body: { email: string }
+ */
 export async function POST(req: Request) {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  }
-
   try {
-    const users = await getUsersCollection();
-    const emailLower = email.toLowerCase();
+    const { email: emailRaw } = await req.json();
+    const email = String(emailRaw || "").trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      return NextResponse.json({ ok: false, error: "invalid_email" }, { status: 400 });
+    }
 
-    const u = await users.findOne({ emailLower }, { projection: { otpLastSentAt: 1 } });
-    if (!canSendAgain(u?.otpLastSentAt, 60)) {
+    const client = await clientPromise;
+    const db = client.db();
+    const pending = db.collection("pending_signups");
+
+    const p = await pending.findOne({ emailLower: email }, { projection: { otpLastSentAt: 1 } });
+    if (!p) {
+      // do NOT leak whether a user exists; generic error
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+
+    if (!canSendAgain(p?.otpLastSentAt, 60)) {
       return NextResponse.json({ ok: false, error: "cooldown" }, { status: 429 });
     }
 
@@ -28,8 +36,8 @@ export async function POST(req: Request) {
     const hash = hashCode(code);
     const exp = addMinutes(new Date(), 10);
 
-    await users.updateOne(
-      { emailLower },
+    await pending.updateOne(
+      { emailLower: email },
       {
         $set: {
           emailOtpHash: hash,
@@ -38,16 +46,14 @@ export async function POST(req: Request) {
           otpTries: 0,
           updatedAt: new Date(),
         },
-        $setOnInsert: { createdAt: new Date(), email },
-      },
-      { upsert: false }
+      }
     );
 
     await sendOtpEmail(email, code);
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    console.error("[email-otp/start] error", e);
+    console.error("[email-otp/start] Option A error", e);
     return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
   }
 }

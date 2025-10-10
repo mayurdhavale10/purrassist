@@ -54,6 +54,7 @@ export default function AuthModal({
   const [state, setState] = useState<SignupState>(emptySignup);
   const [lane, setLane] = useState<Lane>(null);
 
+  // Reset on close
   useEffect(() => {
     if (!open) {
       setTab(defaultTab);
@@ -65,7 +66,7 @@ export default function AuthModal({
     }
   }, [open, defaultTab]);
 
-  /** Step 1: classify email → lane A/B */
+  /** 0) Email -> lane classification */
   async function handleEmailNext(email: string) {
     setErr(null);
     setBusy(true);
@@ -87,8 +88,8 @@ export default function AuthModal({
     }
   }
 
-  /** Register then login (use fresh payload values instead of possibly stale state) */
-  async function handleRegisterThenLogin(payload: {
+  /** 3) Register. Lane A: sign in now. Lane B: DO NOT sign in yet — send OTP and go to OtpStep. */
+  async function handleRegister(payload: {
     email: string;
     password: string;
     profileName: string;
@@ -103,7 +104,7 @@ export default function AuthModal({
     setErr(null);
     setBusy(true);
     try {
-      // 1) Register
+      // Register
       const reg = await fetch("/api/auth/email/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -112,34 +113,52 @@ export default function AuthModal({
       const rj = await reg.json();
       if (!reg.ok || !rj?.ok) throw new Error(rj?.error || "Registration failed");
 
-      // 2) Issue session
-      const sres = await signIn("credentials", {
-        email: payload.email,
-        password: payload.password,
-        redirect: false,
-      });
-      if (sres?.error) throw new Error(sres.error);
-
-      // 3) Branch by lane
       if (lane === "A") {
+        // Lane A → sign in immediately
+        const sres = await signIn("credentials", {
+          email: payload.email,
+          password: payload.password,
+          redirect: false,
+        });
+        if (sres?.error) throw new Error(sres.error);
+
         setStepIdx(7); // Success
         (onLaneASuccessNavigate && onLaneASuccessNavigate("/connections")) || onClose();
         return;
       }
 
-      // Lane B → kick off OTP email
+      // Lane B → send OTP (NO sign-in yet)
       const otpStart = await fetch("/api/auth/email-otp/start", {
         method: "POST",
-        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: payload.email }),
       });
       const oj = await otpStart.json();
       if (!otpStart.ok || !oj?.ok) {
-        // don’t block user entirely; but surface error so they can retry
         throw new Error(oj?.error || "Could not send verification code");
       }
       setStepIdx(4); // go to OTP step
     } catch (e: any) {
       setErr(e?.message || "Signup failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** After OTP verified (Lane B only) → now sign in, then go to Role */
+  async function handleAfterOtpVerified() {
+    setErr(null);
+    setBusy(true);
+    try {
+      const sres = await signIn("credentials", {
+        email: state.email,
+        password: state.password,
+        redirect: false,
+      });
+      if (sres?.error) throw new Error(sres.error);
+      setStepIdx(5); // go to Role
+    } catch (e: any) {
+      setErr(e?.message || "Login failed after verification");
     } finally {
       setBusy(false);
     }
@@ -158,7 +177,7 @@ export default function AuthModal({
       });
       if (sres?.error) throw new Error(sres.error);
       setStepIdx(7); // success
-      onClose(); // close after successful login
+      onClose();
     } catch (e: any) {
       setErr(e?.message || "Login failed");
     } finally {
@@ -183,7 +202,7 @@ export default function AuthModal({
       const j = await r.json();
       if (!r.ok || !j?.ok) throw new Error(j?.error || "Upload failed");
       setState((s) => ({ ...s, idFile: file, idUploadedUrl: j.url ?? null }));
-      setStepIdx(7); // success
+      setStepIdx(7);
       setTimeout(() => onClose(), 800);
     } catch (e: any) {
       setErr(e?.message || "Upload failed");
@@ -236,7 +255,7 @@ export default function AuthModal({
         onNext={async (u) => {
           setState((s) => ({ ...s, username: u }));
           if (tab === "signup") {
-            await handleRegisterThenLogin({
+            await handleRegister({
               email: state.email,
               password: state.password,
               profileName: state.profileName,
@@ -248,12 +267,12 @@ export default function AuthModal({
         }}
       />,
 
-      // 4) OTP (Lane B)
+      // 4) OTP (Lane B) — OtpStep itself calls /email-otp/verify internally
       <OtpStep
         key="otp"
         email={state.email}
         onBack={() => setStepIdx(3)}
-        onVerified={() => setStepIdx(5)} // go to Role on success
+        onVerified={handleAfterOtpVerified} // AFTER verify → sign in → go to Role
       />,
 
       // 5) Role (Lane B)
@@ -379,7 +398,7 @@ export default function AuthModal({
                 onGoogle={() => signIn("google")}
               />
             ) : (
-              steps[1] // password step (login)
+              steps[1] // Password step for login
             )}
           </div>
 
