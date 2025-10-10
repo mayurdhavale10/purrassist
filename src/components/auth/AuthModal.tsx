@@ -22,13 +22,10 @@ export type SignupState = {
   idUploadedUrl?: string | null;
 };
 
-type Lane = "A" | "B" | null;
-
 type Props = {
   open: boolean;
   onClose: () => void;
   defaultTab?: "login" | "signup";
-  /** optional: where to send lane A users after success */
   onLaneASuccessNavigate?: (href: string) => void;
 };
 
@@ -41,6 +38,8 @@ const emptySignup: SignupState = {
   idFile: null,
   idUploadedUrl: null,
 };
+
+type Lane = "A" | "B" | null;
 
 export default function AuthModal({
   open,
@@ -55,7 +54,6 @@ export default function AuthModal({
   const [state, setState] = useState<SignupState>(emptySignup);
   const [lane, setLane] = useState<Lane>(null);
 
-  // reset when closing
   useEffect(() => {
     if (!open) {
       setTab(defaultTab);
@@ -67,7 +65,7 @@ export default function AuthModal({
     }
   }, [open, defaultTab]);
 
-  /** Step 1: classify email → lane A/B */
+  /** 0) Email → classify lane (A/B) */
   async function handleEmailNext(email: string) {
     setErr(null);
     setBusy(true);
@@ -89,7 +87,7 @@ export default function AuthModal({
     }
   }
 
-  /** Register (Option B respects pending_signups) */
+  /** Register (PENDING ONLY), then OTP start (Option B) */
   async function handleRegister(payload: {
     email: string;
     password: string;
@@ -101,53 +99,30 @@ export default function AuthModal({
       setStepIdx(0);
       return;
     }
-
     setErr(null);
     setBusy(true);
     try {
-      const reg = await fetch("/api/auth/email/register", {
+      const res = await fetch("/api/auth/email/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, lane }),
       });
-      const rj = await reg.json();
+      const j = await res.json();
 
-      if (!reg.ok) {
-        // server returns 409 only if email exists in USERS (not in pending)
-        if (rj?.error === "email_exists") {
-          throw new Error("This email already has an account. Try logging in.");
-        }
-        // any other non-OK
-        throw new Error(rj?.error || "Registration failed");
+      if (res.status === 409 || j?.error === "email_exists") {
+        throw new Error("Email already registered");
       }
+      if (!res.ok || !j?.ok) throw new Error(j?.error || "Registration failed");
 
-      // Lane A: user is created in users → sign in now
-      if (lane === "A") {
-        const sres = await signIn("credentials", {
-          email: payload.email,
-          password: payload.password,
-          redirect: false,
-        });
-        if (sres?.error) throw new Error(sres.error);
-        setStepIdx(7); // Success
-        // optional navigate
-        (onLaneASuccessNavigate && onLaneASuccessNavigate("/connections")) || onClose();
-        return;
-      }
-
-      // Lane B:
-      // /register created/updated pending_signups (NOT users)
-      // Server may return { pending:true, resume:true } if already pending.
-      // Next step: send OTP and go to OtpStep
-      const otpStart = await fetch("/api/auth/email-otp/start", {
+      // Kick off OTP to pending_signups (Option B)
+      const start = await fetch("/api/auth/email-otp/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: payload.email.trim().toLowerCase() }),
       });
-      const oj = await otpStart.json();
-      if (!otpStart.ok || !oj?.ok) {
-        throw new Error(oj?.error || "Could not send verification code");
-      }
+      const sj = await start.json();
+      if (!start.ok || !sj?.ok) throw new Error(sj?.error || "Could not send code");
+
       setStepIdx(4); // OTP step
     } catch (e: any) {
       setErr(e?.message || "Signup failed");
@@ -156,7 +131,7 @@ export default function AuthModal({
     }
   }
 
-  /** Login path (tab = login): call credentials directly */
+  /** Login tab → Credentials login */
   async function handleLoginPasswordNext(password: string) {
     setState((s) => ({ ...s, password }));
     setErr(null);
@@ -168,8 +143,8 @@ export default function AuthModal({
         redirect: false,
       });
       if (sres?.error) throw new Error(sres.error);
-      setStepIdx(7); // success
-      onClose(); // close after successful login
+      setStepIdx(7);
+      onClose();
     } catch (e: any) {
       setErr(e?.message || "Login failed");
     } finally {
@@ -177,25 +152,48 @@ export default function AuthModal({
     }
   }
 
-  /** Lane B → ID upload (promotion happens server-side). Then sign in. */
-  async function handleIdUpload(file: File) {
+  /** After OTP verified (Option B): go Role/Upload path */
+  function handleOtpVerified() {
+    if (lane === "A") {
+      setStepIdx(6); // straight to Upload for A (if you keep upload for A)
+    } else {
+      setStepIdx(5); // Role first for B
+    }
+  }
+
+  /** Upload → promote pending → THEN sign in → success (Option B) */
+  async function handleIdUpload(
+    file: File,
+    extras?: { orgType?: string; orgName?: string }
+  ): Promise<void> {
     setBusy(true);
     setErr(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      if (state.role) fd.append("role", state.role);
 
-      // In Option B, this route promotes pending_signups -> users
+      // REQUIRED for Option B promotion
+      fd.append("email", state.email.trim().toLowerCase());
+
+      // Optional metadata
+      if (state.role) fd.append("role", state.role);
+      if (extras?.orgType) fd.append("orgType", extras.orgType);
+      if (extras?.orgName) fd.append("orgName", extras.orgName);
+
       const r = await fetch("/api/verification/upload", {
         method: "POST",
         body: fd,
-        // usually no credentials here in Option B (user not logged in yet)
       });
       const j = await r.json();
-      if (!r.ok || !j?.ok) throw new Error(j?.error || "Upload failed");
+      if (!r.ok || !j?.ok) {
+        if (j?.error === "username_taken") {
+          const suggestion = j?.suggestedHandle ? ` Try: ${j.suggestedHandle}` : "";
+          throw new Error("Username is taken." + suggestion);
+        }
+        throw new Error(j?.error || "Upload failed");
+      }
 
-      // Now the real user exists. Sign in.
+      // Promote success → NOW login with credentials
       const sres = await signIn("credentials", {
         email: state.email,
         password: state.password,
@@ -204,8 +202,9 @@ export default function AuthModal({
       if (sres?.error) throw new Error(sres.error);
 
       setState((s) => ({ ...s, idFile: file, idUploadedUrl: j.url ?? null }));
-      setStepIdx(7); // success
-      setTimeout(() => onClose(), 800);
+      setStepIdx(7);
+      if (onLaneASuccessNavigate) onLaneASuccessNavigate("/connections");
+      else setTimeout(() => onClose(), 800);
     } catch (e: any) {
       setErr(e?.message || "Upload failed");
     } finally {
@@ -249,7 +248,7 @@ export default function AuthModal({
         }}
       />,
 
-      // 3) Username
+      // 3) Username → Register (pending) → OTP start
       <UsernameStep
         key="username"
         value={state.username}
@@ -261,7 +260,7 @@ export default function AuthModal({
               email: state.email,
               password: state.password,
               profileName: state.profileName,
-              username: u, // fresh value
+              username: u,
             });
           } else {
             setStepIdx(4);
@@ -269,13 +268,8 @@ export default function AuthModal({
         }}
       />,
 
-      // 4) OTP (Lane B)
-      <OtpStep
-        key="otp"
-        email={state.email}
-        onBack={() => setStepIdx(3)}
-        onVerified={() => setStepIdx(5)} // go to Role on success
-      />,
+      // 4) OTP (Option B)
+      <OtpStep key="otp" email={state.email} onBack={() => setStepIdx(3)} onVerified={handleOtpVerified} />,
 
       // 5) Role (Lane B)
       <RoleStep
@@ -284,16 +278,19 @@ export default function AuthModal({
         onBack={() => setStepIdx(4)}
         onNext={(role) => {
           setState((s) => ({ ...s, role }));
-          setStepIdx(6); // go to ID upload
+          setStepIdx(6);
         }}
       />,
 
-      // 6) ID Upload (Lane B)
+      // 6) ID Upload (promote + sign-in)
       <IdUploadStep
         key="id"
         file={state.idFile}
-        onBack={() => setStepIdx(5)}
-        onNext={handleIdUpload}
+        onBack={() => (lane === "A" ? setStepIdx(4) : setStepIdx(5))}
+        // ✅ Annotate params and ensure the handler returns void (not Promise)
+        onNext={(file: File, extras?: { orgType?: string; orgName?: string }) => {
+          void handleIdUpload(file, extras);
+        }}
       />,
 
       // 7) Success
@@ -328,7 +325,7 @@ export default function AuthModal({
             </button>
           </div>
 
-          {/* Tabs (disabled while busy) */}
+          {/* Tabs */}
           <div className="mb-6 grid grid-cols-2 rounded-xl bg-white/10 p-1">
             <button
               className={`py-2 rounded-lg text-sm transition ${
@@ -400,7 +397,7 @@ export default function AuthModal({
                 onGoogle={() => signIn("google")}
               />
             ) : (
-              steps[1] // password step (login)
+              steps[1] // Password step for login
             )}
           </div>
 
