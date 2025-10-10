@@ -1,77 +1,170 @@
 // src/app/api/verification/upload/route.ts
 import { NextResponse } from "next/server";
 import clientPromise from "@/lib/clientPromise";
-import { auth } from "../../../../../auth";
-import { ObjectId } from "mongodb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function normEmail(e: string) {
+  return e.trim().toLowerCase();
+}
+function suggestHandle(base: string) {
+  const b = (base || "user").replace(/[^a-z0-9._-]/gi, "").slice(0, 28);
+  const suffix = Math.floor(1000 + Math.random() * 9000); // 4 digits
+  return `${b}${suffix}`;
+}
+
 export async function POST(req: Request) {
   try {
-    // 1) Must be logged in
-    const session = await auth();
-    const userId = (session as any)?.user?.id ?? null;
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-    }
-
-    // 2) Must be multipart/form-data with a file
-    const ct = req.headers.get("content-type") || "";
-    if (!ct.includes("multipart/form-data")) {
+    const contentType = req.headers.get("content-type") || "";
+    if (!contentType.includes("multipart/form-data")) {
       return NextResponse.json({ ok: false, error: "expected_form_data" }, { status: 400 });
     }
 
     const form = await req.formData();
-    const file = form.get("file") as File | null;
-    const role = (form.get("role") ?? "") as string; // optional, e.g. "College" | "School" | "Professional"
 
+    const emailRaw = String(form.get("email") ?? "");
+    const role = String(form.get("role") ?? "").trim() || null;       // optional
+    const orgType = String(form.get("orgType") ?? "").trim() || null; // optional: "college"|"school"|"professional"
+    const orgName = String(form.get("orgName") ?? "").trim() || null; // optional
+
+    const file = form.get("file") as File | null;
+
+    const email = normEmail(emailRaw);
+    if (!email || !email.includes("@")) {
+      return NextResponse.json({ ok: false, error: "invalid_email" }, { status: 400 });
+    }
     if (!file || !file.size) {
       return NextResponse.json({ ok: false, error: "missing_file" }, { status: 400 });
     }
 
-    // Optional: basic validation (accept images/pdf up to ~10MB)
-    const allowed = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ ok: false, error: "file_too_large" }, { status: 400 });
-    }
-    if (file.type && !allowed.includes(file.type)) {
-      return NextResponse.json({ ok: false, error: "unsupported_type" }, { status: 400 });
-    }
-
-    // TODO: Upload to Cloudinary/S3 here and set real URL.
-    // const arrayBuf = await file.arrayBuffer(); // if you need the bytes for upload
+    // Placeholder file upload step.
+    // TODO: Upload `file` to S3/Cloudinary and capture the public URL.
     const fileMeta = {
       fileName: file.name,
-      mimeType: file.type || "application/octet-stream",
+      mimeType: file.type,
       size: file.size,
-      url: null as string | null, // placeholder; set your cloud URL after real upload
+      url: null as string | null,
     };
 
-    // 3) Persist pending verification on the user
     const client = await clientPromise;
     const db = client.db();
+
+    const pending = db.collection("pending_signups");
     const users = db.collection("users");
 
-    await users.updateOne(
-      { _id: new ObjectId(userId) },
+    // 1) Find pending signup; must be email-verified to proceed
+    const p = await pending.findOne(
+      { emailLower: email },
       {
-        $set: {
-          verificationStatus: "pending",
-          // keep your previous fields for admin visibility
-          role: role || null,
-          verificationFile: fileMeta,
-          idUploadUrl: fileMeta.url, // convenient flat field
-          updatedAt: new Date(),
+        projection: {
+          email: 1,
+          emailLower: 1,
+          displayName: 1,
+          displayNameLower: 1,
+          desiredHandle: 1,
+          desiredHandleLower: 1,
+          passwordHash: 1,
+          lane: 1,
+          emailVerifiedAt: 1,
+          createdAt: 1,
         },
-        $setOnInsert: { createdAt: new Date() },
       }
     );
 
-    // Respond with a shape your client already handles
-    return NextResponse.json({ ok: true, status: "pending", url: fileMeta.url ?? null }, { status: 200 });
+    if (!p) {
+      // Don't leak existence—generic error is okay here
+      return NextResponse.json({ ok: false, error: "not_found_or_expired" }, { status: 404 });
+    }
+
+    if (!p.emailVerifiedAt) {
+      return NextResponse.json({ ok: false, error: "email_not_verified" }, { status: 400 });
+    }
+
+    // 2) Block if user already exists (rare race)
+    const existingUser = await users.findOne(
+      { $or: [{ emailLower: email }, { email }] },
+      { projection: { _id: 1 } }
+    );
+    if (existingUser) {
+      // Already promoted or registered via another flow
+      // Safe to delete pending to avoid confusion
+      await pending.deleteOne({ _id: p._id });
+      return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
+    }
+
+    // 3) Enforce handle uniqueness *now* (only at promotion time)
+    let handle = (p.desiredHandle as string) || "";
+    let handleLower = (p.desiredHandleLower as string) || "";
+    if (!handle || !/^[a-zA-Z0-9._-]{3,30}$/.test(handle)) {
+      handle = "user";
+      handleLower = "user";
+    }
+
+    const handleTaken = await users.findOne(
+      { handleLower },
+      { projection: { _id: 1 } }
+    );
+    if (handleTaken) {
+      // Suggest a new handle and ask client to bounce user to username step again.
+      const suggested = suggestHandle(handleLower);
+      return NextResponse.json(
+        { ok: false, error: "username_taken", suggestedHandle: suggested },
+        { status: 409 }
+      );
+    }
+
+    // 4) Build the real user document (verificationStatus stays "pending")
+    const now = new Date();
+    const userDoc = {
+      email: p.email || email,
+      emailLower: email,
+
+      // names
+      name: p.displayName ?? null,
+      displayName: p.displayName ?? null,
+      displayNameLower: (p.displayNameLower as string) ?? (p.displayName || "").toLowerCase(),
+
+      // public handle
+      handle,
+      handleLower,
+
+      // local auth
+      passwordHash: p.passwordHash ?? null,
+
+      // signup / verification
+      lane: (p.lane as "A" | "B") ?? "B",
+      verificationStatus: "pending" as const,
+      role,
+
+      // org + file metadata
+      verificationOrgType: orgType,
+      verificationOrgName: orgName,
+      verificationFile: fileMeta,
+      idUploadUrl: fileMeta.url,
+
+      // product defaults
+      planTier: "FREE" as const,
+      planExpiry: null as Date | null,
+
+      // timestamps
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // 5) Insert into users
+    const insertRes = await users.insertOne(userDoc as any);
+
+    // 6) Cleanup pending
+    await pending.deleteOne({ _id: p._id });
+
+    // 7) Respond; client should now call signIn("credentials")
+    return NextResponse.json(
+      { ok: true, userId: insertRes.insertedId.toString(), url: fileMeta.url },
+      { status: 200 }
+    );
   } catch (err: any) {
-    console.error("verification/upload error", err);
-    return NextResponse.json({ ok: false, error: "server_error", message: err?.message }, { status: 500 });
+    console.error("[verification/upload] error", err);
+    return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
   }
 }

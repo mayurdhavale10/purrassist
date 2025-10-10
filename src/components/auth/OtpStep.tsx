@@ -1,4 +1,3 @@
-// src/components/auth/OtpStep.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -54,14 +53,12 @@ export default function OtpStep({ email, onBack, onVerified }: Props) {
       });
       const j = await r.json();
       if (!r.ok || !j?.ok) {
-        // surface server reason if present
         throw new Error(j?.error || "Verification failed");
       }
       setInfo("Verified!");
-      onVerified(); // let AuthModal continue (it will sign in, then go to Role)
+      onVerified(); // AuthModal continues (Role → ID Upload)
     } catch (e: any) {
       const msg = String(e?.message || "");
-      // map common API errors to friendly text
       if (msg === "invalid_email") setErr("That email looks invalid. Go back and re-enter it.");
       else if (msg === "expired_or_missing") setErr("Code expired or missing. Resend a new one.");
       else if (msg === "invalid_code") setErr("That code didn’t match. Try again.");
@@ -133,7 +130,7 @@ export default function OtpStep({ email, onBack, onVerified }: Props) {
         </button>
         <button
           onClick={verify}
-          className="flex-1 rounded-xl bg-white/20 hover:bgWHITE/30 py-2 disabled:opacity-50"
+          className="flex-1 rounded-xl bg-white/20 hover:bg-white/30 py-2 disabled:opacity-50"
           disabled={busy || code.length !== 6}
         >
           {busy ? "Verifying…" : "Verify"}
