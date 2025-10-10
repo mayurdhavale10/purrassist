@@ -1,3 +1,4 @@
+// src/app/api/auth/email/register/route.ts
 import { NextResponse } from "next/server";
 import { hash } from "bcrypt";
 import { ObjectId } from "mongodb";
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
 
     const email = normEmail(emailRaw);
     const handle = normHandle(usernameRaw);
+    const handleLower = handle.toLowerCase();
 
     // Basic validation
     if (!email || !email.includes("@")) {
@@ -41,31 +43,76 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "invalid_profile_name" }, { status: 400 });
     }
 
-    // Collections
     const users = await getUsersCollection();
     const client = await clientPromise;
     const db = client.db();
     const pending = db.collection("pending_signups");
 
-    // Uniqueness checks across BOTH users and pending_signups
-    const emailExists =
-      (await users.findOne({ $or: [{ emailLower: email }, { email }] }, { projection: { _id: 1 } })) ||
-      (await pending.findOne({ $or: [{ emailLower: email }, { email }] }, { projection: { _id: 1 } }));
-    if (emailExists) {
+    // 1) Hard conflict: email already in USERS
+    const emailInUsers = await users.findOne(
+      { $or: [{ emailLower: email }, { email }] },
+      { projection: { _id: 1 } }
+    );
+    if (emailInUsers) {
       return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
     }
 
-    const handleTaken =
-      (await users.findOne({ handleLower: handle.toLowerCase() }, { projection: { _id: 1 } })) ||
-      (await pending.findOne({ handleLower: handle.toLowerCase() }, { projection: { _id: 1 } }));
-    if (handleTaken) {
+    // 2) Handle must be unique across USERS
+    const handleInUsers = await users.findOne({ handleLower }, { projection: { _id: 1 } });
+    if (handleInUsers) {
       return NextResponse.json({ ok: false, error: "username_taken" }, { status: 409 });
     }
 
+    // 3) Email already in PENDING? → RESUME (202) instead of conflict
+    const pendingExisting = await pending.findOne(
+      { $or: [{ emailLower: email }, { email }] },
+      { projection: { _id: 1, emailLower: 1 } }
+    );
+
+    // 3a) Handle in PENDING for someone else? → conflict
+    const handleInPending = await pending.findOne(
+      { handleLower },
+      { projection: { _id: 1, emailLower: 1 } }
+    );
+    if (handleInPending && handleInPending.emailLower !== email) {
+      return NextResponse.json({ ok: false, error: "username_taken" }, { status: 409 });
+    }
+
+    // Hash password once
     const passwordHash = await hash(password, 10);
 
+    if (pendingExisting) {
+      // Update the existing pending record with latest profile/handle (don’t override password unless you want to)
+      await pending.updateOne(
+        { _id: pendingExisting._id },
+        {
+          $set: {
+            email,
+            emailLower: email,
+            displayName: profileName,
+            displayNameLower: profileName.trim().toLowerCase(),
+            handle,
+            handleLower,
+            // optional: update passwordHash with the most recent input
+            passwordHash,
+            lane: "B",
+            verificationStatus: "pending",
+            updatedAt: new Date(),
+          },
+          $setOnInsert: { createdAt: new Date() },
+        }
+      );
+
+      // Tell the client to RESUME (OTP step)
+      return NextResponse.json(
+        { ok: true, lane: "B", pending: true, resume: true },
+        { status: 202 }
+      );
+    }
+
+    // 4) Fresh registration
     if (lane === "A") {
-      // Lane A → write directly into users
+      // Lane A → create REAL user directly
       const userDoc = withDerivedUserFields({
         _id: new ObjectId(),
         email,
@@ -84,43 +131,64 @@ export async function POST(req: Request) {
         await users.insertOne(userDoc as any);
       } catch (err: any) {
         if (err?.code === 11000) {
+          // Duplicate key — decide which
           const kp = err?.keyPattern || {};
-          if (kp.handleLower) return NextResponse.json({ ok: false, error: "username_taken" }, { status: 409 });
-          if (kp.emailLower || kp.email) return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
+          if (kp.handleLower) {
+            return NextResponse.json({ ok: false, error: "username_taken" }, { status: 409 });
+          }
+          if (kp.emailLower || kp.email) {
+            return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
+          }
           return NextResponse.json({ ok: false, error: "conflict" }, { status: 409 });
         }
         throw err;
       }
 
       return NextResponse.json({ ok: true, lane: "A" }, { status: 201 });
+    } else {
+      // Lane B → create PENDING record only (not a real user yet)
+      const pendingDoc = {
+        _id: new ObjectId(),
+        email,
+        emailLower: email,
+        displayName: profileName,
+        displayNameLower: profileName.trim().toLowerCase(),
+        handle,
+        handleLower,
+        passwordHash, // store to apply after OTP verification
+        lane: "B",
+        verificationStatus: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      try {
+        await pending.insertOne(pendingDoc as any);
+      } catch (err: any) {
+        if (err?.code === 11000) {
+          const kp = err?.keyPattern || {};
+          if (kp.handleLower) {
+            return NextResponse.json({ ok: false, error: "username_taken" }, { status: 409 });
+          }
+          if (kp.emailLower || kp.email) {
+            // If TTL cleaned up duplicates, this may occur; treat as resume
+            return NextResponse.json(
+              { ok: true, lane: "B", pending: true, resume: true },
+              { status: 202 }
+            );
+          }
+          return NextResponse.json({ ok: false, error: "conflict" }, { status: 409 });
+        }
+        throw err;
+      }
+
+      return NextResponse.json({ ok: true, lane: "B", pending: true }, { status: 201 });
     }
-
-    // Lane B → write to pending_signups ONLY
-    const pendingDoc = {
-      _id: new ObjectId(),
-      email,
-      emailLower: email,
-      name: profileName,
-      displayName: profileName,
-      displayNameLower: profileName.trim().toLowerCase(),
-      handle,
-      handleLower: handle.toLowerCase(),
-      passwordHash,
-      lane: "B",
-      // OTP fields will be set by /email-otp/start
-      emailOtpHash: null as string | null,
-      emailOtpExp: null as Date | null,
-      otpTries: 0,
-      otpLastSentAt: null as Date | null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    await pending.insertOne(pendingDoc);
-
-    return NextResponse.json({ ok: true, lane: "B", pending: true }, { status: 201 });
   } catch (e: any) {
-    console.error("register (Option A) error:", e);
-    return NextResponse.json({ ok: false, error: "server_error", detail: e?.message }, { status: 500 });
+    console.error("register error:", e);
+    return NextResponse.json(
+      { ok: false, error: "server_error", detail: e?.message },
+      { status: 500 }
+    );
   }
 }
