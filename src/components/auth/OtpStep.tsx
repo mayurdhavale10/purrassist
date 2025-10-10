@@ -1,39 +1,72 @@
+// src/components/auth/OtpStep.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Props = {
   email: string;
   onBack: () => void;
-  onVerified: () => void;        // call when OTP verifies successfully
-  onResent?: () => void;         // optional hook after resend
+  onVerified: () => void; // call this when verify succeeds
 };
 
-export default function OtpStep({ email, onBack, onVerified, onResent }: Props) {
+function maskEmail(e: string) {
+  const [user, domain] = (e || "").split("@");
+  if (!user || !domain) return e || "";
+  const shown = user.slice(0, 2);
+  return `${shown}${"*".repeat(Math.max(user.length - 2, 0))}@${domain}`;
+}
+
+export default function OtpStep({ email, onBack, onVerified }: Props) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(`We sent a 6-digit code to ${email}`);
+  const [info, setInfo] = useState<string | null>(null);
+
+  // resend cooldown
+  const [cooldown, setCooldown] = useState(60);
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown((c) => c - 1), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
 
   async function verify() {
-    if (!code || code.trim().length < 6) {
-      setErr("Enter the 6-digit code");
+    setErr(null);
+    setInfo(null);
+
+    const normalizedEmail = (email || "").trim().toLowerCase();
+    if (!normalizedEmail.includes("@")) {
+      setErr("Email missing for verification. Please go back and enter email again.");
       return;
     }
-    setErr(null);
+    const c = code.replace(/\s+/g, "");
+    if (!/^\d{6}$/.test(c)) {
+      setErr("Enter the 6-digit code.");
+      return;
+    }
+
     setBusy(true);
     try {
-      const res = await fetch("/api/auth/email-otp/verify", {
+      const r = await fetch("/api/auth/email-otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ code: code.trim() }),
+        body: JSON.stringify({ email: normalizedEmail, code: c }),
       });
-      const j = await res.json();
-      if (!res.ok || !j.ok) throw new Error(j.error || "Invalid code");
-      onVerified();
+      const j = await r.json();
+      if (!r.ok || !j?.ok) {
+        // surface server reason if present
+        throw new Error(j?.error || "Verification failed");
+      }
+      setInfo("Verified!");
+      onVerified(); // let AuthModal continue (it will sign in, then go to Role)
     } catch (e: any) {
-      setErr(e?.message || "Verification failed");
+      const msg = String(e?.message || "");
+      // map common API errors to friendly text
+      if (msg === "invalid_email") setErr("That email looks invalid. Go back and re-enter it.");
+      else if (msg === "expired_or_missing") setErr("Code expired or missing. Resend a new one.");
+      else if (msg === "invalid_code") setErr("That code didn’t match. Try again.");
+      else if (msg === "too_many_attempts") setErr("Too many attempts. Please resend a new code after a minute.");
+      else setErr("Verification failed. Please try again.");
     } finally {
       setBusy(false);
     }
@@ -41,64 +74,81 @@ export default function OtpStep({ email, onBack, onVerified, onResent }: Props) 
 
   async function resend() {
     setErr(null);
+    setInfo(null);
+
+    const normalizedEmail = (email || "").trim().toLowerCase();
+    if (!normalizedEmail.includes("@")) {
+      setErr("Email missing for resend. Please go back and re-enter it.");
+      return;
+    }
+    if (cooldown > 0) return;
+
     setBusy(true);
     try {
-      const res = await fetch("/api/auth/email-otp/start", {
+      const r = await fetch("/api/auth/email-otp/start", {
         method: "POST",
-        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail }),
       });
-      const j = await res.json();
-      if (!res.ok || !j.ok) throw new Error(j.error || "Couldn’t resend yet");
-      setInfo("New code sent. Check your inbox (and spam).");
-      onResent?.();
+      const j = await r.json();
+      if (!r.ok || !j?.ok) throw new Error(j?.error || "Could not resend code");
+      setInfo("A new code was sent.");
+      setCooldown(60);
     } catch (e: any) {
-      setErr(e?.message || "Resend failed");
+      const msg = String(e?.message || "");
+      if (msg === "cooldown") setErr("Please wait a bit before resending.");
+      else setErr("Could not resend code. Try again shortly.");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-white text-base font-semibold">Verify your email</h3>
-      {info && <p className="text-white/70 text-sm">{info}</p>}
+    <div className="text-white">
+      <h3 className="text-lg font-semibold mb-2">Verify your email</h3>
+      <p className="text-sm text-white/70 mb-4">
+        We sent a 6-digit code to <span className="font-medium">{maskEmail(email)}</span>
+      </p>
 
       <input
         inputMode="numeric"
-        pattern="[0-9]*"
-        placeholder="Enter 6-digit code"
-        className="w-full rounded-xl bg-white/10 border border-white/15 px-3 py-2 text-white placeholder:text-white/40"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
+        pattern="\d*"
         maxLength={6}
+        placeholder="Enter 6-digit code"
+        className="w-full rounded-xl bg-white/10 border border-white/15 px-3 py-2 text-white placeholder:text-white/40 tracking-widest text-center"
+        value={code}
+        onChange={(e) => setCode(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}
       />
 
-      {err && <p className="text-sm text-red-300">{err}</p>}
+      {err && <p className="mt-3 text-sm text-red-300">{err}</p>}
+      {info && <p className="mt-3 text-sm text-emerald-300">{info}</p>}
 
-      <div className="flex gap-2">
+      <div className="mt-4 flex items-center gap-2">
         <button
           onClick={onBack}
-          className="flex-1 rounded-xl bg-white/10 hover:bg-white/15 text-white py-2"
+          className="flex-1 rounded-xl bg-white/10 hover:bg-white/15 py-2"
           disabled={busy}
         >
           Back
         </button>
         <button
           onClick={verify}
-          className="flex-1 rounded-xl bg-white/20 hover:bg-white/30 text-white py-2 disabled:opacity-50"
-          disabled={busy}
+          className="flex-1 rounded-xl bg-white/20 hover:bgWHITE/30 py-2 disabled:opacity-50"
+          disabled={busy || code.length !== 6}
         >
-          {busy ? "Checking…" : "Verify"}
+          {busy ? "Verifying…" : "Verify"}
         </button>
       </div>
 
-      <button
-        onClick={resend}
-        className="text-xs text-white/70 hover:text-white underline-offset-2 hover:underline disabled:opacity-50"
-        disabled={busy}
-      >
-        Resend code
-      </button>
+      <div className="mt-3 text-center">
+        <button
+          onClick={resend}
+          disabled={busy || cooldown > 0}
+          className="text-sm text-white/80 hover:text-white disabled:opacity-50"
+        >
+          {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
+        </button>
+      </div>
     </div>
   );
 }
