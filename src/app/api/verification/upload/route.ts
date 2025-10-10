@@ -8,7 +8,10 @@ import { ocrImageToText, nameMatchScore } from "@/lib/ocr";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Give OCR enough time
+export const maxDuration = 60;
 
+/** Minimal org shape for this route */
 type OrganizationDoc = {
   _id: ObjectId;
   slug: string;
@@ -32,12 +35,12 @@ function normalizeOrgName(org: OrganizationDoc | null | undefined): string {
   if (!org) return "";
   return (org.displayName ?? org.name ?? "").toString();
 }
-
 function normalizeOrgDomains(org: OrganizationDoc | null | undefined): Record<string, boolean> {
   if (!org) return {};
   return org.org_domains ?? org.domains ?? {};
 }
 
+/** Upsert org by slug and return the full doc */
 async function ensureOrganization(
   orgs: Collection<OrganizationDoc>,
   seed: OrgSeed
@@ -67,6 +70,14 @@ async function ensureOrganization(
   return doc;
 }
 
+/** Small helper to keep OCR from hanging forever */
+async function withTimeout<T>(p: Promise<T>, ms = 8000): Promise<T> {
+  return await Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("ocr_timeout")), ms)),
+  ]);
+}
+
 /**
  * multipart/form-data:
  *  - file    : File (required)
@@ -91,6 +102,7 @@ export async function POST(req: Request) {
       | "Professional"
       | null;
 
+    // default org type so it's never undefined
     const orgTypeInput = (String(form.get("orgType") ?? "").trim().toLowerCase() || "college") as
       | "college"
       | "school"
@@ -120,7 +132,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "email_exists" }, { status: 409 });
     }
 
-    // Must exist in pending and have verified email
+    // Must exist in pending + have verified email
     const p = await pending.findOne(
       { emailLower: emailRaw },
       {
@@ -143,13 +155,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "email_not_verified" }, { status: 400 });
     }
 
-    // OCR the file and check name
-    const buf = Buffer.from(await file.arrayBuffer());
-    const ocrText = await ocrImageToText(buf);
-    const match = nameMatchScore(p.displayName || "", ocrText); // e.g. "Mayur Dhavale" vs OCR text
+    // ---------- OCR (safe + bounded) ----------
+    let isVerified = false;
+    let matchDebug: { tokens: string[]; matched: number; total: number; ratio: number } | null = null;
 
-    // Org via email domain first
+    try {
+      const buf = Buffer.from(await file.arrayBuffer());
+      const text = await withTimeout(ocrImageToText(buf), 8000);
+      const match = nameMatchScore(p.displayName || "", text);
+      isVerified = !!match.ok;
+      matchDebug = { tokens: match.tokens, matched: match.matched, total: match.total, ratio: match.ratio };
+    } catch (e) {
+      // OCR failed or timed out -> keep isVerified = false (manual review)
+      matchDebug = { tokens: [], matched: 0, total: 0, ratio: 0 };
+    }
+
+    // ---------- Organization ----------
     let chosenOrg: OrganizationDoc | null = null;
+
+    // try email domain first
     const domainGuess = await resolveOrgFromEmail(emailRaw);
     if (domainGuess?.org) {
       const org = domainGuess.org as OrganizationDoc;
@@ -160,7 +184,8 @@ export async function POST(req: Request) {
         domains: normalizeOrgDomains(org),
       });
     }
-    // If none yet and orgName was provided → fuzzy by name
+
+    // fallback to fuzzy name if provided
     if (!chosenOrg && orgName) {
       const fuzzy = await resolveOrgByNameFuzzy({ name: orgName, type: orgType });
       const org = fuzzy.org as OrganizationDoc;
@@ -172,7 +197,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // Prepare minimal file meta (plug S3/Cloudinary later)
+    // ---------- File metadata (stub, replace with S3/Cloudinary later) ----------
     const fileMeta = {
       fileName: file.name,
       mimeType: file.type,
@@ -180,9 +205,7 @@ export async function POST(req: Request) {
       url: null as string | null,
     };
 
-    // Decide verification
-    const isVerified = match.ok; // passes flexible rule (≥ 50% tokens, ≤2 edits)
-
+    // ---------- Create real user + remove pending ----------
     const now = new Date();
     const userDoc = withDerivedUserFields({
       _id: new ObjectId(),
@@ -206,6 +229,10 @@ export async function POST(req: Request) {
       planTier: "FREE",
       createdAt: now,
       updatedAt: now,
+      verificationNotes: {
+        method: "ocr_name_check",
+        match: matchDebug,
+      },
     });
 
     await users.insertOne(userDoc as any);
@@ -215,8 +242,7 @@ export async function POST(req: Request) {
       ok: true,
       promoted: true,
       verified: isVerified,
-      // helpful debug so you can see why it failed/passed
-      match: { tokens: match.tokens, matched: match.matched, total: match.total, ratio: match.ratio },
+      match: matchDebug,
     });
   } catch (e: any) {
     console.error("[verification/upload] error:", e?.message || e);
